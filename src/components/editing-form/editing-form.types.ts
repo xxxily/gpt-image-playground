@@ -4,6 +4,7 @@ import type { GptImageModel } from '@/lib/cost-utils';
 import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderOptions } from '@/lib/provider-options';
 import type { SizePreset } from '@/lib/size-utils';
+import type { ShowcasePromptApplyMode } from '@/lib/showcase-recipe';
 import type {
     VisionTextApiCompatibility,
     VisionTextDetail,
@@ -153,4 +154,5 @@ export type EditingFormHandle = {
     getBatchFormSnapshot: () => BatchPlanFormSnapshot;
     getPrompt: () => string;
     setPrompt: (prompt: string, options?: EditingFormPromptOptions) => void;
+    applyShowcasePrompt: (prompt: string, mode: ShowcasePromptApplyMode, options?: EditingFormPromptOptions) => void;
 };

@@ -1,6 +1,7 @@
 import type { CostDetails } from '@/lib/cost-utils';
 import { normalizeHistoryWorkspaceId } from '@/lib/creative-workspace-history';
 import { isImageModelId } from '@/lib/model-registry';
+import { normalizeShowcaseAttribution } from '@/lib/showcase';
 import { reportStorageQuotaIfApplicable } from '@/lib/storage-quota';
 import type {
     HistoryImage,
@@ -164,6 +165,9 @@ function normalizeHistoryMetadata(value: unknown): HistoryMetadata | null {
     if (isFiniteNumber(value.batchVariantTotal) && value.batchVariantTotal > 0) {
         history.batchVariantTotal = Math.round(value.batchVariantTotal);
     }
+
+    const showcaseAttribution = normalizeShowcaseAttribution(value.showcaseAttribution);
+    if (showcaseAttribution) history.showcaseAttribution = showcaseAttribution;
 
     return history;
 }

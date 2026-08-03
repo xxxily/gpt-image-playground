@@ -3,7 +3,8 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { FloatingActionMenu } from '@/components/ui/floating-action-menu';
 import type { FeatureMenuItem, FeatureMenuOpenSurface } from '@/lib/feature-menu-registry';
-import { Boxes, Compass, FolderKanban } from 'lucide-react';
+import { Boxes, Compass, FolderKanban, Layers3 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
 type AppFeatureMenuProps = {
@@ -14,9 +15,19 @@ type AppFeatureMenuProps = {
 
 export function AppFeatureMenu({ onOpenAssetLibrary, onOpenCreativeWorkspaces, rightBoundaryPx }: AppFeatureMenuProps) {
     const { t } = useAppLanguage();
+    const router = useRouter();
 
     const items = React.useMemo<FeatureMenuItem[]>(
         () => [
+            {
+                id: 'showcase-topics',
+                labelKey: 'featureMenu.showcaseTopics',
+                descriptionKey: 'featureMenu.showcaseTopics.description',
+                icon: Layers3,
+                order: 5,
+                action: 'custom',
+                onSelect: () => router.push('/topics')
+            },
             {
                 id: 'creative-workspaces',
                 labelKey: 'featureMenu.creativeWorkspaces',
@@ -167,7 +178,7 @@ export function AppFeatureMenu({ onOpenAssetLibrary, onOpenCreativeWorkspaces, r
                 ]
             }
         ],
-        [onOpenAssetLibrary, onOpenCreativeWorkspaces]
+        [onOpenAssetLibrary, onOpenCreativeWorkspaces, router]
     );
 
     return (

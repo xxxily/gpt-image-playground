@@ -7,6 +7,9 @@ import { EditingForm, type EditingFormHandle } from '@/components/editing-form';
 import { HistoryPanel } from '@/components/history-panel';
 import { ImageOutput } from '@/components/image-output';
 import { PromoSlot } from '@/components/promo-slot';
+import { ShowcaseAttributionChip } from '@/components/showcase/showcase-attribution-chip';
+import { ShowcaseGuideDialog, type ShowcaseGuideSubmission } from '@/components/showcase/showcase-guide-dialog';
+import { ShowcaseSection } from '@/components/showcase/showcase-section';
 import { TaskTracker } from '@/components/task-tracker';
 import { TextOutput } from '@/components/text-output';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -19,6 +22,8 @@ import { WorkspaceStatusChip } from '@/components/workspaces/workspace-status-ch
 import { WorkbenchDialogs } from '@/features/workbench/workbench-dialogs';
 import { WorkbenchHeader } from '@/features/workbench/workbench-header';
 import type { ConfigurationGuidanceTarget } from '@/lib/configuration-guidance';
+import type { ShowcaseCase, ShowcaseTopic } from '@/lib/showcase';
+import type { ShowcaseModelCompatibility } from '@/lib/showcase-recipe';
 import { ALL_CREATIVE_WORKSPACES_ID } from '@/types/creative-workspace';
 import type { WorkspacePanelTab } from '@/types/workspace-panel';
 import { Boxes, Compass, FolderKanban, X } from 'lucide-react';
@@ -63,6 +68,12 @@ type WorkbenchShellProps = {
         openLabel: string;
         onOpen: () => void;
     };
+    showcaseAttribution: {
+        topic: string;
+        showcaseCase: string;
+        onOpen: () => void;
+        onClear: () => void;
+    } | null;
     outputAnchorRef: React.RefObject<HTMLDivElement | null>;
     errorState: {
         error: string | null;
@@ -98,6 +109,19 @@ type WorkbenchShellProps = {
     taskTracker: React.ComponentProps<typeof TaskTracker>;
     promoProfileId: string | null;
     historyPanel: React.ComponentProps<typeof HistoryPanel>;
+    showcaseGuide: {
+        open: boolean;
+        topic: ShowcaseTopic | null;
+        showcaseCase: ShowcaseCase | null;
+        currentPrompt: string;
+        currentSourceImageCount: number;
+        compatibility: ShowcaseModelCompatibility | null;
+        modelLabel: string;
+        recommendedModelLabels?: string[];
+        onOpenChange: (open: boolean) => void;
+        onOpenModelSettings: () => void;
+        onConfirm: (submission: ShowcaseGuideSubmission) => void;
+    };
 };
 
 function WorkspaceSidePane({
@@ -265,6 +289,7 @@ export function WorkbenchShell({
     editingFormRef,
     editingFormProps,
     activeWorkspaceStatus,
+    showcaseAttribution,
     outputAnchorRef,
     errorState,
     batchOutput,
@@ -273,7 +298,8 @@ export function WorkbenchShell({
     imageOutput,
     taskTracker,
     promoProfileId,
-    historyPanel
+    historyPanel,
+    showcaseGuide
 }: WorkbenchShellProps) {
     return (
         <main id='main-content' tabIndex={-1} className='app-theme-scope text-foreground h-dvh overflow-hidden'>
@@ -341,6 +367,7 @@ export function WorkbenchShell({
                     <div className='flex min-h-full flex-col items-center overflow-x-hidden px-0 pt-0 pb-4 md:p-6 lg:p-8'>
                         <WorkbenchHeader {...header} />
                         <WorkbenchDialogs {...dialogs} />
+                        <ShowcaseGuideDialog {...showcaseGuide} />
                         <div className='sr-only' aria-live='polite' aria-atomic='true'>
                             {generationAnnouncement}
                         </div>
@@ -352,12 +379,28 @@ export function WorkbenchShell({
                                     <EditingForm
                                         ref={editingFormRef}
                                         workspaceStatusSlot={
-                                            <WorkspaceStatusChip
-                                                key={activeWorkspaceStatus.key}
-                                                name={activeWorkspaceStatus.name}
-                                                openLabel={activeWorkspaceStatus.openLabel}
-                                                onOpen={activeWorkspaceStatus.onOpen}
-                                            />
+                                            <div className='flex min-w-0 flex-wrap items-center justify-end gap-2'>
+                                                {showcaseAttribution ? (
+                                                    <ShowcaseAttributionChip
+                                                        label={t('showcase.attribution.label')}
+                                                        topic={showcaseAttribution.topic}
+                                                        showcaseCase={showcaseAttribution.showcaseCase}
+                                                        openLabel={t('showcase.attribution.open', {
+                                                            topic: showcaseAttribution.topic,
+                                                            case: showcaseAttribution.showcaseCase
+                                                        })}
+                                                        clearLabel={t('showcase.attribution.clear')}
+                                                        onOpen={showcaseAttribution.onOpen}
+                                                        onClear={showcaseAttribution.onClear}
+                                                    />
+                                                ) : null}
+                                                <WorkspaceStatusChip
+                                                    key={activeWorkspaceStatus.key}
+                                                    name={activeWorkspaceStatus.name}
+                                                    openLabel={activeWorkspaceStatus.openLabel}
+                                                    onOpen={activeWorkspaceStatus.onOpen}
+                                                />
+                                            </div>
                                         }
                                         {...editingFormProps}
                                     />
@@ -375,6 +418,9 @@ export function WorkbenchShell({
 
                             <div className='min-h-[150px]'>
                                 <TaskTracker {...taskTracker} />
+                                <div className='mt-6'>
+                                    <ShowcaseSection maxTopics={6} />
+                                </div>
                                 <div className='mt-6 mb-4'>
                                     <PromoSlot
                                         slotKey='history_top_banner'

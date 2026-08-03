@@ -3,6 +3,7 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { type EditingFormData, type EditingFormHandle, type WorkbenchTaskMode } from '@/components/editing-form';
 import { useNotice } from '@/components/notice-provider';
+import type { ShowcaseGuideSubmission } from '@/components/showcase/showcase-guide-dialog';
 import { collectHistoryImageTimestamps } from '@/features/workbench/history/history-timestamps';
 import { WorkbenchShell } from '@/features/workbench/page/workbench-shell';
 import {
@@ -155,6 +156,13 @@ import {
     resolveClientDirectLinkConnectionMode,
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
+import type { ShowcaseAttribution, ShowcaseCatalog, ShowcaseCase, ShowcaseTopic } from '@/lib/showcase';
+import { getShowcaseCase, getShowcaseTopic, loadShowcaseCatalog } from '@/lib/showcase-client';
+import {
+    applyShowcasePrompt,
+    evaluateShowcaseModelCompatibility,
+    resolveShowcaseRecipeWorkbenchValues
+} from '@/lib/showcase-recipe';
 import { getPresetDimensions, resolveImageRequestSize } from '@/lib/size-utils';
 import {
     uploadSnapshot,
@@ -266,6 +274,9 @@ function buildRecoveredManagedTaskSubmitParams(
         imageStorageMode: appConfig.imageStorageMode,
         imageStoragePath: appConfig.imageStoragePath || undefined,
         managedTaskRecord: record,
+        ...(record.showcaseAttribution || record.historyParams.showcaseAttribution
+            ? { showcaseAttribution: record.showcaseAttribution ?? record.historyParams.showcaseAttribution }
+            : {}),
         ...(record.workspaceId && record.workspaceNameSnapshot
             ? {
                   workspaceScope: {
@@ -377,7 +388,7 @@ if (process.env.NODE_ENV === 'development') {
 
 export default function HomePage() {
     const { addNotice } = useNotice();
-    const { t } = useAppLanguage();
+    const { language, t } = useAppLanguage();
     const [isPasswordRequiredByBackend, setIsPasswordRequiredByBackend] = React.useState<boolean | null>(null);
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
@@ -455,6 +466,17 @@ export default function HomePage() {
     const [generationAnnouncement, setGenerationAnnouncement] = React.useState('');
     const [assetLibraryOpen, setAssetLibraryOpen] = React.useState(false);
     const [creativeWorkspacesOpen, setCreativeWorkspacesOpen] = React.useState(false);
+    const [showcaseCatalog, setShowcaseCatalog] = React.useState<ShowcaseCatalog | null>(null);
+    const [showcaseGuideTopic, setShowcaseGuideTopic] = React.useState<ShowcaseTopic | null>(null);
+    const [showcaseGuideCase, setShowcaseGuideCase] = React.useState<ShowcaseCase | null>(null);
+    const [showcaseGuideOpen, setShowcaseGuideOpen] = React.useState(false);
+    const [showcaseAttribution, setShowcaseAttribution] = React.useState<{
+        metadata: ShowcaseAttribution;
+        topicSlug: string;
+        caseSlug: string;
+        topicTitle: string;
+        caseTitle: string;
+    } | null>(null);
     const [assetLibraryInitialTab, setAssetLibraryInitialTab] = React.useState<'assets' | 'inspiration'>('assets');
     const [leftWorkspacePanelTab, setLeftWorkspacePanelTab] = React.useState<WorkspacePanelTab>('workspaces');
     const [rightWorkspacePanelTab, setRightWorkspacePanelTab] = React.useState<WorkspacePanelTab>('assets');
@@ -796,6 +818,42 @@ export default function HomePage() {
             }),
         [appConfig.customImageModels, editModel, editN]
     );
+    const showcaseModelCompatibility = React.useMemo(
+        () =>
+            showcaseGuideCase
+                ? evaluateShowcaseModelCompatibility(showcaseGuideCase.recipe, {
+                      id: editModelDefinition.id,
+                      label: editModelDefinition.label,
+                      supportsEditing: editModelDefinition.supportsEditing,
+                      supportsMask: editModelDefinition.supportsMask,
+                      supportsCustomSize: editModelDefinition.supportsCustomSize,
+                      maxReferenceImages: editReferenceImageConstraints.maxImages
+                  })
+                : null,
+        [editModelDefinition, editReferenceImageConstraints.maxImages, showcaseGuideCase]
+    );
+    const showcaseRecommendedModels = React.useMemo(() => {
+        if (!showcaseGuideCase) return [];
+        return getAllImageModels(appConfig.customImageModels)
+            .filter((model) => {
+                const constraints = getImageReferenceConstraints(model.id, {
+                    customImageModels: appConfig.customImageModels,
+                    outputCount: showcaseGuideCase.recipe.output?.n ?? 1
+                });
+                const compatible = evaluateShowcaseModelCompatibility(showcaseGuideCase.recipe, {
+                    id: model.id,
+                    label: model.label,
+                    supportsEditing: model.supportsEditing,
+                    supportsMask: model.supportsMask,
+                    supportsCustomSize: model.supportsCustomSize,
+                    maxReferenceImages: constraints.maxImages
+                }).compatible;
+                if (!compatible) return false;
+                return Boolean(getProviderCredentialConfig(appConfig, model.provider, model.instanceId).apiKey);
+            })
+            .slice(0, 3)
+            .map((model) => model.label);
+    }, [appConfig, showcaseGuideCase]);
     const getImageReferenceNotice = React.useCallback(
         (issue: Parameters<typeof getImageReferenceValidationIssueMessageDescriptor>[0]) => {
             const descriptor = getImageReferenceValidationIssueMessageDescriptor(issue);
@@ -1991,6 +2049,7 @@ export default function HomePage() {
                     imageStorageMode: cfg.imageStorageMode,
                     imageStoragePath: cfg.imageStoragePath || undefined,
                     workspaceScope: currentWorkspaceTaskScope,
+                    ...(showcaseAttribution ? { showcaseAttribution: showcaseAttribution.metadata } : {}),
                     runDetails: createImageTaskRunDetails({
                         ...commonImageRunDetails,
                         mode: 'generate',
@@ -2044,6 +2103,7 @@ export default function HomePage() {
                     imageStorageMode: cfg.imageStorageMode,
                     imageStoragePath: cfg.imageStoragePath || undefined,
                     workspaceScope: currentWorkspaceTaskScope,
+                    ...(showcaseAttribution ? { showcaseAttribution: showcaseAttribution.metadata } : {}),
                     runDetails: createImageTaskRunDetails({
                         ...commonImageRunDetails,
                         mode: 'edit',
@@ -2065,7 +2125,8 @@ export default function HomePage() {
             currentWorkspaceTaskScope,
             enableStreaming,
             getImageReferenceNotice,
-            partialImages
+            partialImages,
+            showcaseAttribution
         ]
     );
 
@@ -3767,6 +3828,125 @@ export default function HomePage() {
             return false;
         },
         [addImageFilesToEdit, scrollToEditForm]
+    );
+
+    const openShowcaseGuide = React.useCallback(
+        async (topicSlug: string, caseSlug: string) => {
+            const result = await loadShowcaseCatalog({ appConfig });
+            const topic = getShowcaseTopic(result.catalog, topicSlug);
+            const showcaseCase = topic ? getShowcaseCase(result.catalog, topic, caseSlug) : null;
+            if (!topic || !showcaseCase) {
+                addNotice(t('showcase.notice.caseUnavailable'), 'warning');
+                return;
+            }
+            setShowcaseCatalog(result.catalog);
+            setShowcaseGuideTopic(topic);
+            setShowcaseGuideCase(showcaseCase);
+            setShowcaseGuideOpen(true);
+        },
+        [addNotice, appConfig, t]
+    );
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        const topicSlug = params.get('showcaseTopic')?.trim();
+        const caseSlug = params.get('showcaseCase')?.trim();
+        if (!topicSlug || !caseSlug) return;
+
+        params.delete('showcaseTopic');
+        params.delete('showcaseCase');
+        const query = params.toString();
+        window.history.replaceState(
+            null,
+            '',
+            `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+        );
+        void openShowcaseGuide(topicSlug, caseSlug);
+    }, [openShowcaseGuide]);
+
+    const handleApplyShowcaseGuide = React.useCallback(
+        (submission: ShowcaseGuideSubmission) => {
+            if (!showcaseGuideTopic || !showcaseGuideCase || showcaseModelCompatibility?.compatible === false) return;
+            const currentPrompt = getWorkbenchPrompt();
+            const nextPrompt = applyShowcasePrompt(currentPrompt, submission.prompt, submission.promptMode);
+            const recipeValues = resolveShowcaseRecipeWorkbenchValues(showcaseGuideCase.recipe, submission.prompt);
+            const nextFiles = submission.imageMode === 'append' ? [...editImageFiles, ...submission.files] : submission.files;
+
+            const validation = validateImageReferenceFiles(nextFiles, {
+                ...getImageReferenceConstraints(editModel, {
+                    customImageModels: appConfig.customImageModels,
+                    outputCount: recipeValues.n ?? editN[0]
+                })
+            });
+            if (!validation.valid) {
+                addNotice(getImageReferenceNotice(validation.issue), 'warning');
+                return;
+            }
+
+            setEditImageFiles(nextFiles);
+            setEditSourceImagePreviewUrls((currentUrls) => [
+                ...(submission.imageMode === 'append' ? currentUrls : []),
+                ...submission.files.map((file) => URL.createObjectURL(file))
+            ]);
+            setWorkbenchPrompt(nextPrompt, { focus: false });
+            setTaskMode(recipeValues.taskMode);
+            if (recipeValues.n !== undefined) setEditN([recipeValues.n]);
+            if (recipeValues.size) {
+                setEditSize(recipeValues.size);
+                setScenarioSelectedEditSize(null);
+            }
+            if (recipeValues.customWidth !== undefined && recipeValues.customHeight !== undefined) {
+                setEditSize('custom');
+                setScenarioSelectedEditSize(null);
+                setEditCustomWidth(recipeValues.customWidth);
+                setEditCustomHeight(recipeValues.customHeight);
+            }
+            if (recipeValues.quality) setEditQuality(recipeValues.quality);
+            if (recipeValues.outputFormat) setOutputFormat(recipeValues.outputFormat);
+            if (recipeValues.outputCompression !== undefined) setCompression([recipeValues.outputCompression]);
+            if (recipeValues.background) setBackground(recipeValues.background);
+            if (recipeValues.moderation) setModeration(recipeValues.moderation);
+            setShowcaseAttribution({
+                metadata: {
+                    topicId: showcaseGuideTopic.id,
+                    caseId: showcaseGuideCase.id,
+                    recipeVersion: showcaseGuideCase.recipe.version,
+                    catalogRevision: showcaseCatalog?.catalogRevision ?? 'builtin'
+                },
+                topicSlug: showcaseGuideTopic.slug,
+                caseSlug: showcaseGuideCase.slug,
+                topicTitle: showcaseGuideTopic.title[language],
+                caseTitle: showcaseGuideCase.title[language]
+            });
+
+            setShowcaseGuideOpen(false);
+            addNotice(
+                t('showcase.notice.recipeLoaded', {
+                    topic: showcaseGuideTopic.title[language],
+                    case: showcaseGuideCase.title[language]
+                }),
+                'success'
+            );
+            window.setTimeout(scrollToEditForm, 50);
+        },
+        [
+            addNotice,
+            appConfig.customImageModels,
+            editImageFiles,
+            editModel,
+            editN,
+            getImageReferenceNotice,
+            getWorkbenchPrompt,
+            language,
+            scrollToEditForm,
+            setWorkbenchPrompt,
+            showcaseGuideCase,
+            showcaseGuideTopic,
+            showcaseModelCompatibility?.compatible,
+            showcaseCatalog?.catalogRevision,
+            t
+        ]
     );
 
     const handleWorkspacePanelTabChange = React.useCallback((side: 'left' | 'right', tab: WorkspacePanelTab) => {
@@ -7205,6 +7385,20 @@ export default function HomePage() {
                 openLabel: t('creativeWorkspaces.status.open'),
                 onOpen: () => handleOpenCreativeWorkspacesSurface('default')
             }}
+            showcaseAttribution={
+                showcaseAttribution
+                    ? {
+                          topic: showcaseAttribution.topicTitle,
+                          showcaseCase: showcaseAttribution.caseTitle,
+                          onOpen: () => {
+                              window.location.assign(
+                                  `/topics?topic=${encodeURIComponent(showcaseAttribution.topicSlug)}&case=${encodeURIComponent(showcaseAttribution.caseSlug)}`
+                              );
+                          },
+                          onClear: () => setShowcaseAttribution(null)
+                      }
+                    : null
+            }
             outputAnchorRef={imageOutputAnchorRef}
             errorState={{
                 error,
@@ -7284,6 +7478,34 @@ export default function HomePage() {
                 maxConcurrent: appConfig.maxConcurrentTasks || 3
             }}
             promoProfileId={promoProfileId}
+            showcaseGuide={{
+                open: showcaseGuideOpen,
+                topic: showcaseGuideTopic,
+                showcaseCase: showcaseGuideCase,
+                currentPrompt: getWorkbenchPrompt(),
+                currentSourceImageCount: editImageFiles.length,
+                compatibility: showcaseModelCompatibility,
+                modelLabel: editModelDefinition.label,
+                recommendedModelLabels: showcaseRecommendedModels,
+                onOpenChange: (open) => {
+                    setShowcaseGuideOpen(open);
+                    if (!open) {
+                        setShowcaseGuideTopic(null);
+                        setShowcaseGuideCase(null);
+                    }
+                },
+                onOpenModelSettings: () => {
+                    setShowcaseGuideOpen(false);
+                    openConfigurationGuidanceTarget(
+                        getConfigurationGuidanceTarget('image', {
+                            intent: 'select-task-model',
+                            taskCapability:
+                                showcaseGuideCase?.recipe.taskMode === 'image-edit' ? 'image.edit' : 'image.generate'
+                        })
+                    );
+                },
+                onConfirm: handleApplyShowcaseGuide
+            }}
             historyPanel={{
                 history: scopedImageHistory,
                 visionTextHistory: scopedVisionTextHistory,

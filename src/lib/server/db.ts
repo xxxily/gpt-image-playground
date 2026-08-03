@@ -290,6 +290,46 @@ const createTableStatements = [
     `CREATE INDEX IF NOT EXISTS "managed_task_policies_enabled_priority_idx" ON "managed_task_policies" ("enabled", "priority");`,
     `CREATE INDEX IF NOT EXISTS "managed_task_policies_service_idx" ON "managed_task_policies" ("taskServiceId");`,
     `CREATE INDEX IF NOT EXISTS "managed_task_policies_updated_at_idx" ON "managed_task_policies" ("updatedAt");`,
+    `CREATE TABLE IF NOT EXISTS "showcase_topics" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "slug" TEXT NOT NULL UNIQUE,
+        "status" TEXT NOT NULL DEFAULT 'draft',
+        "featured" INTEGER NOT NULL DEFAULT 0,
+        "sortOrder" INTEGER NOT NULL DEFAULT 0,
+        "startsAt" INTEGER,
+        "endsAt" INTEGER,
+        "draftJson" TEXT NOT NULL,
+        "draftRevision" INTEGER NOT NULL DEFAULT 1,
+        "publishedPublicationId" TEXT,
+        "publishedAt" INTEGER,
+        "archivedAt" INTEGER,
+        "createdByUserId" TEXT,
+        "updatedByUserId" TEXT,
+        "createdAt" INTEGER NOT NULL DEFAULT (cast((julianday('now') - 2440587.5) * 86400000 as integer)),
+        "updatedAt" INTEGER NOT NULL DEFAULT (cast((julianday('now') - 2440587.5) * 86400000 as integer)),
+        FOREIGN KEY ("createdByUserId") REFERENCES "user"("id") ON DELETE SET NULL,
+        FOREIGN KEY ("updatedByUserId") REFERENCES "user"("id") ON DELETE SET NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS "showcase_topics_status_sort_idx" ON "showcase_topics" ("status", "sortOrder");`,
+    `CREATE INDEX IF NOT EXISTS "showcase_topics_active_publication_idx" ON "showcase_topics" ("publishedPublicationId");`,
+    `CREATE INDEX IF NOT EXISTS "showcase_topics_updated_at_idx" ON "showcase_topics" ("updatedAt");`,
+    `CREATE TABLE IF NOT EXISTS "showcase_publications" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "topicId" TEXT NOT NULL,
+        "revision" INTEGER NOT NULL,
+        "schemaVersion" INTEGER NOT NULL,
+        "catalogRevision" TEXT NOT NULL UNIQUE,
+        "snapshotJson" TEXT NOT NULL,
+        "contentHash" TEXT NOT NULL,
+        "sourcePublicationId" TEXT,
+        "publishedByUserId" TEXT,
+        "publishedAt" INTEGER NOT NULL DEFAULT (cast((julianday('now') - 2440587.5) * 86400000 as integer)),
+        FOREIGN KEY ("topicId") REFERENCES "showcase_topics"("id") ON DELETE CASCADE,
+        FOREIGN KEY ("publishedByUserId") REFERENCES "user"("id") ON DELETE SET NULL
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "showcase_publications_topic_revision_idx" ON "showcase_publications" ("topicId", "revision");`,
+    `CREATE INDEX IF NOT EXISTS "showcase_publications_topic_published_at_idx" ON "showcase_publications" ("topicId", "publishedAt");`,
+    `CREATE INDEX IF NOT EXISTS "showcase_publications_content_hash_idx" ON "showcase_publications" ("contentHash");`,
     `CREATE TABLE IF NOT EXISTS "audit_logs" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "actorUserId" TEXT,
@@ -315,7 +355,9 @@ const migrationStatements = [
     `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioHeight" INTEGER;`,
     `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioLabel" TEXT;`,
     `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioSource" TEXT;`,
-    `ALTER TABLE "promo_configs" ADD COLUMN "constraintsJson" TEXT;`
+    `ALTER TABLE "promo_configs" ADD COLUMN "constraintsJson" TEXT;`,
+    `ALTER TABLE "showcase_topics" ADD COLUMN "startsAt" INTEGER;`,
+    `ALTER TABLE "showcase_topics" ADD COLUMN "endsAt" INTEGER;`
 ];
 
 let bundle: DatabaseBundle | null = null;

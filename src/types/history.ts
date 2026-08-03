@@ -1,5 +1,6 @@
 import type { CostDetails, GptImageModel } from '@/lib/cost-utils';
 import type { ProviderUsage } from '@/lib/provider-types';
+import type { ShowcaseAttribution } from '@/lib/showcase';
 import type {
     ImageToTextStructuredResult,
     VisionTextApiCompatibility,
@@ -49,6 +50,7 @@ export type HistoryMetadata = WorkspaceScopedMetadata & {
     batchInputImageOrder?: number;
     batchVariantIndex?: number;
     batchVariantTotal?: number;
+    showcaseAttribution?: ShowcaseAttribution;
 };
 
 export type VisionTextSourceImageRef = {

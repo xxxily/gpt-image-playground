@@ -76,6 +76,7 @@ import {
     type PromptHistoryEntry
 } from '@/lib/prompt-history';
 import { getPromptPolishErrorMessage, polishPrompt } from '@/lib/prompt-polish';
+import { applyShowcasePrompt as applyShowcasePromptText, type ShowcasePromptApplyMode } from '@/lib/showcase-recipe';
 import {
     PROMPT_POLISH_PRESETS,
     DEFAULT_POLISHING_PRESET_ID,
@@ -1053,6 +1054,14 @@ function EditingFormBase(
             },
             getBatchFormSnapshot: buildBatchFormSnapshot,
             getPrompt: () => editPromptRef.current,
+            applyShowcasePrompt: (prompt: string, mode: ShowcasePromptApplyMode, options = {}) => {
+                const nextPrompt = applyShowcasePromptText(editPromptRef.current, prompt, mode);
+                setEditPrompt(nextPrompt);
+                closePromptOverlays();
+                if (options.focus !== false) {
+                    focusPromptAt(options.cursorPosition ?? nextPrompt.length);
+                }
+            },
             setPrompt: (prompt, options = {}) => {
                 setEditPrompt(prompt);
                 closePromptOverlays();

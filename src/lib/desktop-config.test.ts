@@ -3,10 +3,12 @@ import {
     buildDesktopPublicRuntimeConfigUrl,
     buildDesktopPromoPlacementsUrl,
     buildDesktopProxyConfig,
+    buildDesktopShowcaseCatalogUrl,
     compareSemver,
     desktopPublicRuntimeConfigFromAppConfig,
     desktopPromoServiceConfigFromAppConfig,
     desktopProxyConfigFromAppConfig,
+    desktopShowcaseServiceConfigFromAppConfig,
     isNewerVersion,
     isValidProxyUrl,
     normalizeDesktopPromoServiceMode,
@@ -167,6 +169,20 @@ describe('desktop promo service config', () => {
         );
     });
 
+    it('builds showcase catalog endpoints from the same public-content source', () => {
+        expect(buildDesktopShowcaseCatalogUrl('disabled', '')).toBeNull();
+        expect(buildDesktopShowcaseCatalogUrl('current', '')).toBe('/api/showcases');
+        expect(buildDesktopShowcaseCatalogUrl('origin', 'https://content.example.com/promo')).toBe(
+            'https://content.example.com/api/showcases'
+        );
+        expect(
+            buildDesktopShowcaseCatalogUrl(
+                'endpoint',
+                'https://content.example.com/api/promo/placements?surface=desktop#ignored'
+            )
+        ).toBe('https://content.example.com/api/showcases');
+    });
+
     it('builds config from app config', () => {
         expect(desktopPromoServiceConfigFromAppConfig(DEFAULT_CONFIG)).toEqual({
             mode: 'current',
@@ -225,6 +241,32 @@ describe('desktop promo service config', () => {
             mode: 'disabled',
             configUrl: null
         });
+    });
+
+    it('builds showcase config while preserving legacy desktop promo settings', () => {
+        expect(desktopShowcaseServiceConfigFromAppConfig(DEFAULT_CONFIG)).toEqual({
+            mode: 'current',
+            catalogUrl: '/api/showcases'
+        });
+
+        expect(
+            desktopShowcaseServiceConfigFromAppConfig({
+                ...DEFAULT_CONFIG,
+                desktopPromoServiceMode: 'origin',
+                desktopPromoServiceUrl: 'content.example.com'
+            })
+        ).toEqual({
+            mode: 'origin',
+            url: 'https://content.example.com',
+            catalogUrl: 'https://content.example.com/api/showcases'
+        });
+
+        expect(
+            desktopShowcaseServiceConfigFromAppConfig({
+                ...DEFAULT_CONFIG,
+                desktopPromoServiceMode: 'disabled'
+            })
+        ).toEqual({ mode: 'disabled', catalogUrl: null });
     });
 });
 

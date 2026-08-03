@@ -10,6 +10,11 @@ export type DesktopPromoServiceConfig =
     | { mode: 'current'; placementsUrl: string }
     | { mode: 'origin' | 'endpoint'; url: string; placementsUrl: string };
 
+export type DesktopShowcaseServiceConfig =
+    | { mode: 'disabled'; catalogUrl: null }
+    | { mode: 'current'; catalogUrl: string }
+    | { mode: 'origin' | 'endpoint'; url: string; catalogUrl: string };
+
 export type DesktopPublicRuntimeConfig =
     | { mode: 'disabled'; configUrl: null }
     | { mode: 'current'; configUrl: string }
@@ -19,6 +24,7 @@ const PROXY_URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 const SUPPORTED_PROXY_PROTOCOLS = new Set(['http:', 'https:', 'socks5:', 'socks5h:']);
 const HTTP_URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 const PROMO_PLACEMENTS_PATH = '/api/promo/placements';
+const SHOWCASE_CATALOG_PATH = '/api/showcases';
 const PUBLIC_RUNTIME_CONFIG_PATH = '/api/public-runtime-config';
 
 /**
@@ -123,6 +129,35 @@ export function buildDesktopPromoPlacementsUrl(mode: DesktopPromoServiceMode, se
     }
 }
 
+/**
+ * Reuse the desktop public-content source for showcase catalogs. Legacy
+ * `endpoint` values may point at the Promo API, so retain only their trusted
+ * origin before switching to the showcase path.
+ */
+export function buildDesktopShowcaseCatalogUrl(mode: DesktopPromoServiceMode, serviceUrl: string): string | null {
+    switch (mode) {
+        case 'disabled':
+            return null;
+        case 'current':
+            return SHOWCASE_CATALOG_PATH;
+        case 'origin': {
+            const origin = normalizeDesktopPromoServiceUrl(serviceUrl, mode);
+            return origin ? `${origin}${SHOWCASE_CATALOG_PATH}` : null;
+        }
+        case 'endpoint': {
+            const endpoint = normalizeDesktopPromoServiceUrl(serviceUrl, mode);
+            if (!endpoint) return null;
+            const url = new URL(endpoint);
+            url.pathname = SHOWCASE_CATALOG_PATH;
+            url.search = '';
+            url.hash = '';
+            return url.toString();
+        }
+        default:
+            return SHOWCASE_CATALOG_PATH;
+    }
+}
+
 export function buildDesktopPublicRuntimeConfigUrl(mode: DesktopPromoServiceMode, serviceUrl: string): string | null {
     switch (mode) {
         case 'disabled':
@@ -201,6 +236,22 @@ export function desktopPromoServiceConfigFromAppConfig(config: AppConfig): Deskt
     if (mode === 'disabled' || !placementsUrl) return { mode: 'disabled', placementsUrl: null };
     if (mode === 'current') return { mode, placementsUrl };
     return { mode, url: normalizeDesktopPromoServiceUrl(url, mode), placementsUrl };
+}
+
+export function desktopShowcaseServiceConfigFromAppConfig(config: AppConfig): DesktopShowcaseServiceConfig {
+    const mode =
+        'desktopPromoServiceMode' in config
+            ? normalizeDesktopPromoServiceMode((config as unknown as Record<string, unknown>).desktopPromoServiceMode)
+            : 'current';
+    const url =
+        'desktopPromoServiceUrl' in config
+            ? String((config as unknown as Record<string, unknown>).desktopPromoServiceUrl ?? '')
+            : '';
+    const catalogUrl = buildDesktopShowcaseCatalogUrl(mode, url);
+
+    if (mode === 'disabled' || !catalogUrl) return { mode: 'disabled', catalogUrl: null };
+    if (mode === 'current') return { mode, catalogUrl };
+    return { mode, url: normalizeDesktopPromoServiceUrl(url, mode), catalogUrl };
 }
 
 export function desktopPublicRuntimeConfigFromAppConfig(config: AppConfig): DesktopPublicRuntimeConfig {

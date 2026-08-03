@@ -10,6 +10,7 @@ import type { StoredCustomImageModel } from '@/lib/model-registry';
 import type { ProviderProtocol } from '@/lib/provider-model-catalog';
 import type { ProviderOptions } from '@/lib/provider-options';
 import type { ProviderUsage } from '@/lib/provider-types';
+import type { ShowcaseAttribution } from '@/lib/showcase';
 import { notifyTaskCompletion } from '@/lib/tab-notification';
 import type { TaskRunDetails } from '@/lib/task-run-details';
 import {
@@ -48,6 +49,7 @@ export type BatchTaskMetadata = {
     batchVariantTotal?: number;
     workspaceScope?: WorkspaceTaskScope;
     runDetails?: TaskRunDetails;
+    showcaseAttribution?: ShowcaseAttribution;
 };
 
 export type ImageSubmitParams = {
@@ -162,7 +164,13 @@ function generateVisionTextHistoryId(timestamp: number): string {
 }
 
 function applyBatchMetadata<T extends HistoryMetadata>(entry: T, params: SubmitParams): T {
-    if (!params.batchId && !params.batchLabel && !params.batchIndex && !params.batchTotal) {
+    if (
+        !params.batchId &&
+        !params.batchLabel &&
+        !params.batchIndex &&
+        !params.batchTotal &&
+        !params.showcaseAttribution
+    ) {
         return entry;
     }
 
@@ -187,7 +195,8 @@ function applyBatchMetadata<T extends HistoryMetadata>(entry: T, params: SubmitP
                   workspaceId: params.workspaceScope.workspaceId,
                   workspaceNameSnapshot: params.workspaceScope.workspaceNameSnapshot
               }
-            : {})
+            : {}),
+        ...(params.showcaseAttribution ? { showcaseAttribution: params.showcaseAttribution } : {})
     };
 }
 
@@ -646,6 +655,7 @@ export function useTaskManager(
                 editImages: params.imageFiles,
                 editMaskFile: params.maskFile,
                 workspaceScope: params.workspaceScope,
+                showcaseAttribution: params.showcaseAttribution,
                 batchMetadata: {
                     ...(params.batchId ? { batchId: params.batchId } : {}),
                     ...(typeof params.batchIndex === 'number' ? { batchIndex: params.batchIndex } : {}),

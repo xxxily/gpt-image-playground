@@ -13,7 +13,8 @@ import {
     Sparkles,
     ScrollText,
     Users,
-    Workflow
+    Workflow,
+    Layers3
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -26,6 +27,7 @@ type AdminShellProps = {
 const navItems = [
     { href: '/admin', labelKey: 'admin.nav.overview', icon: LayoutDashboard },
     { href: '/admin/promo', labelKey: 'admin.nav.promo', icon: Sparkles },
+    { href: '/admin/showcases', labelKey: 'admin.nav.showcases', icon: Layers3 },
     { href: '/admin/public-actions', labelKey: 'admin.nav.publicActions', icon: KeyRound },
     { href: '/admin/managed-tasks', labelKey: 'admin.nav.managedTasks', icon: Workflow },
     { href: '/admin/short-links', labelKey: 'admin.nav.shortLinks', icon: Link2 },

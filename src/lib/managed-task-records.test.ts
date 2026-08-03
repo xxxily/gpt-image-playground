@@ -45,6 +45,12 @@ function record(overrides: Partial<ManagedTaskClientRecord> = {}): ManagedTaskCl
             outputFormat: 'png',
             imageStorageMode: 'indexeddb'
         },
+        showcaseAttribution: {
+            topicId: 'old-photo-restoration',
+            caseId: 'scratch-removal',
+            recipeVersion: 1,
+            catalogRevision: 'builtin-2026-08'
+        },
         createdAt: 100,
         updatedAt: 100,
         status: 'queued',
@@ -105,5 +111,25 @@ describe('managed task client records', () => {
         expect(updated).toMatchObject({ managedTaskId: 'mgt_1', importState: 'imported' });
         expect(getPendingManagedTaskClientRecords()).toEqual([]);
         expect(window.localStorage.getItem(MANAGED_TASK_CLIENT_RECORDS_STORAGE_KEY)).not.toContain('sk-');
+        expect(loadManagedTaskClientRecords()[0]?.showcaseAttribution).toEqual(
+            record().showcaseAttribution
+        );
+    });
+
+    it('drops malformed showcase attribution while preserving legacy managed task records', () => {
+        expect(
+            saveManagedTaskClientRecords([
+                record({
+                    showcaseAttribution: {
+                        topicId: 'bad topic id',
+                        caseId: 'case',
+                        recipeVersion: 1,
+                        catalogRevision: 'revision'
+                    }
+                })
+            ])
+        ).toBe(true);
+
+        expect(loadManagedTaskClientRecords()[0]?.showcaseAttribution).toBeUndefined();
     });
 });

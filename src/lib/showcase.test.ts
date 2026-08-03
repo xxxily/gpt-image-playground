@@ -1,0 +1,285 @@
+import {
+    normalizeShowcaseAsset,
+    normalizeShowcaseAttribution,
+    normalizeShowcaseCase,
+    normalizeShowcaseCatalog,
+    normalizeShowcaseTopic,
+    SHOWCASE_CATALOG_SCHEMA_VERSION
+} from './showcase';
+import type { ShowcaseAsset, ShowcaseCase, ShowcaseCatalog, ShowcaseTopic } from './showcase';
+import type { ShowcaseRecipeV1 } from './showcase-recipe';
+import { describe, expect, it } from 'vitest';
+
+const localized = (zhCN: string, enUS: string) => ({ 'zh-CN': zhCN, 'en-US': enUS });
+
+function recipe(): ShowcaseRecipeV1 {
+    return {
+        version: 1,
+        taskMode: 'image-edit',
+        promptStrategy: 'replace',
+        prompt: localized('保留主体，清理背景。', 'Preserve the subject and clean the background.'),
+        inputSlots: [
+            {
+                id: 'target',
+                label: localized('主体', 'Subject'),
+                description: localized('上传一张主体图片。', 'Upload one subject image.'),
+                role: 'target',
+                required: true,
+                minCount: 1,
+                maxCount: 1,
+                workbenchOrder: 0,
+                acceptedMimeTypes: ['image/*']
+            }
+        ],
+        capabilityRequirements: {
+            supportsEditing: true,
+            minReferenceImages: 1,
+            supportedTaskModes: ['image-edit']
+        }
+    };
+}
+
+function placeholderAsset(id: string): ShowcaseAsset {
+    return {
+        id,
+        kind: 'placeholder',
+        alt: localized(`${id} 示例占位预览`, `${id} sample placeholder preview`),
+        placeholder: {
+            label: localized('示例占位', 'Sample placeholder'),
+            backgroundColor: '#E5E7EB',
+            foregroundColor: '#334155'
+        }
+    };
+}
+
+function showcaseCase(overrides: Partial<ShowcaseCase> = {}): ShowcaseCase {
+    return {
+        id: 'case-one',
+        topicId: 'topic-one',
+        slug: 'case-one',
+        title: localized('案例一', 'Case One'),
+        summary: localized('一个可复现的示例案例。', 'A reproducible sample case.'),
+        resultExplanation: localized('输出仅为示例占位预览。', 'The output is a sample placeholder preview.'),
+        inputGuidance: localized('上传清晰图片。', 'Upload a clear image.'),
+        cautions: localized('结果需要人工核对。', 'Review the result manually.'),
+        difficulty: 'beginner',
+        sortOrder: 10,
+        coverAssetId: 'output-one',
+        inputAssetIds: ['input-one'],
+        outputAssetIds: ['output-one'],
+        recipe: recipe(),
+        ...overrides
+    };
+}
+
+function topic(overrides: Partial<ShowcaseTopic> = {}): ShowcaseTopic {
+    return {
+        id: 'topic-one',
+        slug: 'topic-one',
+        title: localized('专题一', 'Topic One'),
+        summary: localized('一个实用专题。', 'A practical topic.'),
+        preparation: localized('准备清晰输入图片。', 'Prepare a clear input image.'),
+        limitations: localized('结果会随输入和模型变化。', 'Results vary by input and model.'),
+        tags: [localized('编辑', 'Editing')],
+        featured: true,
+        sortOrder: 10,
+        coverAssetId: 'output-one',
+        caseIds: ['case-one'],
+        ...overrides
+    };
+}
+
+function catalog(overrides: Partial<ShowcaseCatalog> = {}): ShowcaseCatalog {
+    return {
+        schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
+        catalogRevision: 'test-revision-1',
+        generatedAt: 1_800_000_000_000,
+        contentNotice: localized(
+            '媒体是示例占位预览，不是真实 AI 生成素材。',
+            'Media are sample placeholder previews, not actual AI-generated assets.'
+        ),
+        topics: [topic()],
+        cases: [showcaseCase()],
+        assets: [placeholderAsset('input-one'), placeholderAsset('output-one')],
+        ...overrides
+    };
+}
+
+function clone<T>(value: T): T {
+    return structuredClone(value);
+}
+
+describe('showcase item normalizers', () => {
+    it('accepts safe placeholder and public HTTPS image assets', () => {
+        expect(normalizeShowcaseAsset(placeholderAsset('placeholder'))).toEqual(placeholderAsset('placeholder'));
+        expect(
+            normalizeShowcaseAsset({
+                id: 'remote-image',
+                kind: 'remote-image',
+                alt: localized('远程图片示例', 'Remote image sample'),
+                url: 'https://cdn.example.com/showcase/image.webp',
+                mimeType: 'image/webp',
+                width: 1200,
+                height: 800
+            })
+        ).toEqual({
+            id: 'remote-image',
+            kind: 'remote-image',
+            alt: localized('远程图片示例', 'Remote image sample'),
+            url: 'https://cdn.example.com/showcase/image.webp',
+            mimeType: 'image/webp',
+            width: 1200,
+            height: 800
+        });
+    });
+
+    it('rejects unsafe or credential-bearing media URLs', () => {
+        const urls = [
+            'http://cdn.example.com/image.png',
+            'https://localhost/image.png',
+            'https://127.0.0.1/image.png',
+            'https://10.0.0.2/image.png',
+            'https://user:password@cdn.example.com/image.png',
+            'https://cdn.example.internal/image.png',
+            'https://cdn.example.com/image.png?apiKey=value',
+            'data:image/png;base64,AAAA',
+            'blob:local-object',
+            'file:///tmp/image.png'
+        ];
+
+        for (const url of urls) {
+            expect(
+                normalizeShowcaseAsset({
+                    id: 'remote-image',
+                    kind: 'remote-image',
+                    alt: localized('远程图片', 'Remote image'),
+                    url,
+                    mimeType: 'image/png'
+                })
+            ).toBeNull();
+        }
+    });
+
+    it('strictly rejects unknown nested fields in assets, cases, and topics', () => {
+        expect(normalizeShowcaseAsset({ ...placeholderAsset('asset-one'), localPath: '/tmp/image.png' })).toBeNull();
+        expect(normalizeShowcaseCase({ ...showcaseCase(), enabled: true })).toBeNull();
+        expect(normalizeShowcaseTopic({ ...topic(), relatedTopicIds: [] })).toBeNull();
+        expect(
+            normalizeShowcaseTopic({
+                ...topic(),
+                title: { ...topic().title, 'ja-JP': 'トピック' }
+            })
+        ).toBeNull();
+    });
+});
+
+describe('normalizeShowcaseCatalog', () => {
+    it('normalizes safe non-sensitive task attribution and rejects malformed values', () => {
+        expect(
+            normalizeShowcaseAttribution({
+                topicId: 'old-photo-restoration',
+                caseId: 'scratch-removal',
+                recipeVersion: 1,
+                catalogRevision: 'builtin-2026-08'
+            })
+        ).toEqual({
+            topicId: 'old-photo-restoration',
+            caseId: 'scratch-removal',
+            recipeVersion: 1,
+            catalogRevision: 'builtin-2026-08'
+        });
+        expect(
+            normalizeShowcaseAttribution({
+                topicId: '../private',
+                caseId: 'scratch-removal',
+                recipeVersion: 1,
+                catalogRevision: 'builtin'
+            })
+        ).toBeNull();
+        expect(normalizeShowcaseAttribution(null)).toBeNull();
+    });
+
+    it('normalizes a complete catalog and preserves safe custom values', () => {
+        const custom = catalog({
+            catalogRevision: 'customer-curated-42',
+            generatedAt: 1_900_000_000_000,
+            topics: [topic({ sortOrder: 80 })],
+            cases: [showcaseCase({ difficulty: 'advanced', sortOrder: 90 })]
+        });
+
+        expect(normalizeShowcaseCatalog(custom)).toEqual(custom);
+    });
+
+    it('treats a missing catalog schemaVersion as legacy v1 and emits standard v1', () => {
+        const value = catalog();
+        const legacyCatalog = { ...value } as Partial<ShowcaseCatalog>;
+        delete legacyCatalog.schemaVersion;
+
+        expect(normalizeShowcaseCatalog(legacyCatalog)).toEqual(value);
+    });
+
+    it('rejects invalid and future versions, missing required fields, and non-objects', () => {
+        const value = catalog();
+        const withoutRevision = { ...value } as Partial<ShowcaseCatalog>;
+        delete withoutRevision.catalogRevision;
+
+        expect(normalizeShowcaseCatalog({ ...value, schemaVersion: 2 })).toBeNull();
+        expect(normalizeShowcaseCatalog({ ...value, schemaVersion: '1' })).toBeNull();
+        expect(normalizeShowcaseCatalog(withoutRevision)).toBeNull();
+        expect(normalizeShowcaseCatalog(null)).toBeNull();
+        expect(normalizeShowcaseCatalog([])).toBeNull();
+    });
+
+    it('rejects unknown fields and dangerous keys anywhere in the payload', () => {
+        expect(normalizeShowcaseCatalog({ ...catalog(), providerBaseUrl: 'https://example.com' })).toBeNull();
+
+        const nestedUnknown = clone(catalog());
+        nestedUnknown.cases[0].recipe.output = { autostart: true } as never;
+        expect(normalizeShowcaseCatalog(nestedUnknown)).toBeNull();
+
+        const dangerous = clone(catalog());
+        Object.defineProperty(dangerous.topics[0], 'constructor', {
+            value: { prototype: { polluted: true } },
+            enumerable: true
+        });
+        expect(normalizeShowcaseCatalog(dangerous)).toBeNull();
+        expect(Object.prototype).not.toHaveProperty('polluted');
+    });
+
+    it('rejects duplicate topic, case, asset, slug, and ownership identifiers', () => {
+        const value = catalog();
+        expect(normalizeShowcaseCatalog({ ...value, topics: [topic(), topic()] })).toBeNull();
+        expect(normalizeShowcaseCatalog({ ...value, cases: [showcaseCase(), showcaseCase()] })).toBeNull();
+        expect(
+            normalizeShowcaseCatalog({
+                ...value,
+                assets: [...value.assets, placeholderAsset('input-one')]
+            })
+        ).toBeNull();
+
+        const duplicateSlugTopic = topic({ id: 'topic-two' });
+        expect(normalizeShowcaseCatalog({ ...value, topics: [topic(), duplicateSlugTopic] })).toBeNull();
+
+        const duplicateOwnership = catalog({ topics: [topic(), topic({ id: 'topic-two', slug: 'topic-two' })] });
+        expect(normalizeShowcaseCatalog(duplicateOwnership)).toBeNull();
+    });
+
+    it('rejects dangling topic, case, and asset references', () => {
+        expect(normalizeShowcaseCatalog(catalog({ topics: [topic({ caseIds: ['missing-case'] })] }))).toBeNull();
+        expect(normalizeShowcaseCatalog(catalog({ cases: [showcaseCase({ topicId: 'missing-topic' })] }))).toBeNull();
+        expect(normalizeShowcaseCatalog(catalog({ topics: [topic({ coverAssetId: 'missing-asset' })] }))).toBeNull();
+        expect(
+            normalizeShowcaseCatalog(catalog({ cases: [showcaseCase({ inputAssetIds: ['missing-asset'] })] }))
+        ).toBeNull();
+    });
+
+    it('rejects a case listed under a different topic and unlisted cases', () => {
+        const secondTopic = topic({
+            id: 'topic-two',
+            slug: 'topic-two',
+            caseIds: ['case-one']
+        });
+        expect(normalizeShowcaseCatalog(catalog({ topics: [secondTopic] }))).toBeNull();
+        expect(normalizeShowcaseCatalog(catalog({ topics: [topic({ caseIds: [] })] }))).toBeNull();
+    });
+});

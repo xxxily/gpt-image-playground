@@ -1,6 +1,7 @@
 import type { GenerationExecutionMode, ManagedTaskResolvedExecutionMode } from '@/lib/managed-task-config';
 import type { ModelTaskCapability, ProviderKind, ProviderProtocol } from '@/lib/provider-model-catalog';
 import type { ProviderUsage } from '@/lib/provider-types';
+import type { ShowcaseAttribution } from '@/lib/showcase';
 import type {
     ImageBackground,
     ImageModeration,
@@ -225,6 +226,7 @@ export type ManagedTaskHistoryParams = {
     background?: ImageBackground;
     moderation?: ImageModeration;
     imageStorageMode?: ImageStorageMode | 'auto';
+    showcaseAttribution?: ShowcaseAttribution;
 };
 
 export type ManagedTaskBatchMetadata = {
@@ -255,6 +257,7 @@ export type ManagedTaskClientRecord = {
     promptPreview: string;
     parameterDigest: string;
     historyParams: ManagedTaskHistoryParams;
+    showcaseAttribution?: ShowcaseAttribution;
     batch?: ManagedTaskBatchMetadata;
     createdAt: number;
     updatedAt: number;

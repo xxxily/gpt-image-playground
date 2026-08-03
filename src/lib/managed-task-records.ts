@@ -6,6 +6,7 @@ import type {
     ManagedTaskRecordImportState,
     ManagedTaskStatus
 } from '@/lib/managed-task-types';
+import { normalizeShowcaseAttribution } from '@/lib/showcase';
 
 export const MANAGED_TASK_CLIENT_RECORDS_STORAGE_KEY = 'gpt-image-playground-managed-task-records-v1';
 
@@ -90,6 +91,7 @@ function normalizeHistoryParams(
             : source.imageStorageMode === 'auto'
               ? 'auto'
               : undefined;
+    const showcaseAttribution = normalizeShowcaseAttribution(source.showcaseAttribution);
 
     return {
         mode,
@@ -103,7 +105,8 @@ function normalizeHistoryParams(
             : {}),
         ...(background ? { background } : {}),
         ...(moderation ? { moderation } : {}),
-        ...(imageStorageMode ? { imageStorageMode } : {})
+        ...(imageStorageMode ? { imageStorageMode } : {}),
+        ...(showcaseAttribution ? { showcaseAttribution } : {})
     };
 }
 
@@ -165,6 +168,7 @@ export function normalizeManagedTaskClientRecord(value: unknown): ManagedTaskCli
     const createdAt = optionalPositiveNumber(value.createdAt) ?? Date.now();
     const status = normalizeStatus(value.status);
     const importState = normalizeImportState(value.importState);
+    const showcaseAttribution = normalizeShowcaseAttribution(value.showcaseAttribution);
     return {
         managedTaskId,
         clientTaskId,
@@ -184,6 +188,7 @@ export function normalizeManagedTaskClientRecord(value: unknown): ManagedTaskCli
         promptPreview: optionalString(value.promptPreview) || '',
         parameterDigest: optionalString(value.parameterDigest) || hashManagedTaskText(managedTaskId),
         historyParams: normalizeHistoryParams(value.historyParams, rawModelId, taskType),
+        ...(showcaseAttribution ? { showcaseAttribution } : {}),
         ...(normalizeBatch(value.batch) ? { batch: normalizeBatch(value.batch) } : {}),
         createdAt,
         updatedAt: optionalPositiveNumber(value.updatedAt) ?? createdAt,

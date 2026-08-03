@@ -52,6 +52,9 @@ export type ManagedTaskExecutionMode = (typeof managedTaskExecutionModes)[number
 export const managedTaskFallbackModes = ['proxy', 'direct', 'fail-closed', 'ask-user'] as const;
 export type ManagedTaskFallbackMode = (typeof managedTaskFallbackModes)[number];
 
+export const showcaseTopicStatuses = ['draft', 'scheduled', 'published', 'unpublished', 'archived'] as const;
+export type ShowcaseTopicStatus = (typeof showcaseTopicStatuses)[number];
+
 const nowExpression = sql`(cast((julianday('now') - 2440587.5) * 86400000 as integer))`;
 
 const timestampMs = (name: string) => integer(name, { mode: 'timestamp_ms' }).notNull().default(nowExpression);
@@ -393,6 +396,56 @@ export const managedTaskPolicies = sqliteTable(
     })
 );
 
+export const showcaseTopics = sqliteTable(
+    'showcase_topics',
+    {
+        id: text('id').primaryKey(),
+        slug: text('slug').notNull().unique(),
+        status: text('status').notNull().default('draft').$type<ShowcaseTopicStatus>(),
+        featured: integer('featured', { mode: 'boolean' }).notNull().default(false),
+        sortOrder: integer('sortOrder').notNull().default(0),
+        startsAt: integer('startsAt', { mode: 'timestamp_ms' }),
+        endsAt: integer('endsAt', { mode: 'timestamp_ms' }),
+        draftJson: text('draftJson').notNull(),
+        draftRevision: integer('draftRevision').notNull().default(1),
+        publishedPublicationId: text('publishedPublicationId'),
+        publishedAt: integer('publishedAt', { mode: 'timestamp_ms' }),
+        archivedAt: integer('archivedAt', { mode: 'timestamp_ms' }),
+        createdByUserId: text('createdByUserId').references(() => authUsers.id, { onDelete: 'set null' }),
+        updatedByUserId: text('updatedByUserId').references(() => authUsers.id, { onDelete: 'set null' }),
+        createdAt: timestampMs('createdAt'),
+        updatedAt: timestampMs('updatedAt')
+    },
+    (table) => ({
+        statusSortIdx: index('showcase_topics_status_sort_idx').on(table.status, table.sortOrder),
+        activePublicationIdx: index('showcase_topics_active_publication_idx').on(table.publishedPublicationId),
+        updatedAtIdx: index('showcase_topics_updated_at_idx').on(table.updatedAt)
+    })
+);
+
+export const showcasePublications = sqliteTable(
+    'showcase_publications',
+    {
+        id: text('id').primaryKey(),
+        topicId: text('topicId')
+            .notNull()
+            .references(() => showcaseTopics.id, { onDelete: 'cascade' }),
+        revision: integer('revision').notNull(),
+        schemaVersion: integer('schemaVersion').notNull(),
+        catalogRevision: text('catalogRevision').notNull().unique(),
+        snapshotJson: text('snapshotJson').notNull(),
+        contentHash: text('contentHash').notNull(),
+        sourcePublicationId: text('sourcePublicationId'),
+        publishedByUserId: text('publishedByUserId').references(() => authUsers.id, { onDelete: 'set null' }),
+        publishedAt: timestampMs('publishedAt')
+    },
+    (table) => ({
+        topicRevisionIdx: uniqueIndex('showcase_publications_topic_revision_idx').on(table.topicId, table.revision),
+        topicPublishedAtIdx: index('showcase_publications_topic_published_at_idx').on(table.topicId, table.publishedAt),
+        contentHashIdx: index('showcase_publications_content_hash_idx').on(table.contentHash)
+    })
+);
+
 export const auditLogs = sqliteTable(
     'audit_logs',
     {
@@ -430,6 +483,8 @@ export const serverSchema = {
     short_link_visits: shortLinkVisits,
     managed_task_services: managedTaskServices,
     managed_task_policies: managedTaskPolicies,
+    showcase_topics: showcaseTopics,
+    showcase_publications: showcasePublications,
     audit_logs: auditLogs
 } as const;
 

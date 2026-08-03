@@ -104,6 +104,29 @@ describe('loadImageHistory', () => {
         expect(loadImageHistory()).toEqual({ history: valid, shouldPreserveStoredValue: false });
     });
 
+    it('preserves valid showcase attribution and drops malformed values', async () => {
+        const valid = makeEntry({
+            showcaseAttribution: {
+                topicId: 'photo-restoration',
+                caseId: 'scratch-repair',
+                recipeVersion: 1,
+                catalogRevision: 'builtin-2026-08-03'
+            }
+        });
+        localStorage.setItem(
+            IMAGE_HISTORY_STORAGE_KEY,
+            JSON.stringify([
+                valid,
+                { ...makeEntry({ timestamp: 2 }), showcaseAttribution: { topicId: '', recipeVersion: 0 } }
+            ])
+        );
+        const { loadImageHistory } = await loadModule();
+        expect(loadImageHistory()).toEqual({
+            history: [makeEntry({ timestamp: 2 }), valid],
+            shouldPreserveStoredValue: false
+        });
+    });
+
     it('returns empty array for non-array JSON but preserves localStorage value', async () => {
         localStorage.setItem(IMAGE_HISTORY_STORAGE_KEY, JSON.stringify({ notAnArray: true }));
         const { loadImageHistory } = await loadModule();

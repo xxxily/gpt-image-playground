@@ -48,6 +48,7 @@ import {
     type OpenAICompatibleProviderDefaults
 } from '@/lib/providers/openai-compatible';
 import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
+import type { ShowcaseAttribution } from '@/lib/showcase';
 import {
     executeVisionTextDesktopProxyRequest,
     executeVisionTextTask,
@@ -98,6 +99,7 @@ export type TaskExecutionParams = {
     editImages?: File[];
     editMaskFile?: File | null;
     workspaceScope?: WorkspaceTaskScope;
+    showcaseAttribution?: ShowcaseAttribution;
     batchMetadata?: ManagedTaskBatchMetadata;
     managedTaskRecord?: ManagedTaskClientRecord;
 
@@ -783,7 +785,8 @@ function buildManagedTaskHistoryParams(params: TaskExecutionParams): ManagedTask
         ...(params.output_compression !== undefined ? { outputCompression: params.output_compression } : {}),
         ...(params.background ? { background: params.background } : {}),
         ...(params.moderation ? { moderation: params.moderation } : {}),
-        imageStorageMode: params.imageStorageMode
+        imageStorageMode: params.imageStorageMode,
+        ...(params.showcaseAttribution ? { showcaseAttribution: params.showcaseAttribution } : {})
     };
 }
 
@@ -811,6 +814,7 @@ function buildManagedTaskClientRecord(input: {
         promptPreview: createManagedTaskPromptPreview(input.params.prompt),
         parameterDigest: input.parameterDigest,
         historyParams: buildManagedTaskHistoryParams(input.params),
+        ...(input.params.showcaseAttribution ? { showcaseAttribution: input.params.showcaseAttribution } : {}),
         ...(input.params.batchMetadata ? { batch: input.params.batchMetadata } : {}),
         createdAt: Date.parse(input.response.createdAt) || now,
         updatedAt: now,

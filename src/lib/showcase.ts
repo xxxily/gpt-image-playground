@@ -1,0 +1,555 @@
+import { normalizePublicRuntimeConfigUrl } from './public-runtime-config';
+import { normalizeShowcaseRecipe } from './showcase-recipe';
+import type { ShowcaseLocalizedText, ShowcaseRecipeV1 } from './showcase-recipe';
+
+export type {
+    ShowcaseCapabilityRequirements,
+    ShowcaseInputSlot,
+    ShowcaseLocalizedText,
+    ShowcaseRecipeOutput,
+    ShowcaseRecipeV1,
+    ShowcaseTaskMode
+} from './showcase-recipe';
+
+export const SHOWCASE_CATALOG_SCHEMA_VERSION = 1 as const;
+
+export type ShowcasePlaceholderStyle = {
+    label: ShowcaseLocalizedText;
+    backgroundColor: string;
+    foregroundColor: string;
+};
+
+export type ShowcasePlaceholderAsset = {
+    id: string;
+    kind: 'placeholder';
+    alt: ShowcaseLocalizedText;
+    placeholder: ShowcasePlaceholderStyle;
+};
+
+export type ShowcaseRemoteAsset = {
+    id: string;
+    kind: 'remote-image';
+    alt: ShowcaseLocalizedText;
+    url: string;
+    mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/avif';
+    width?: number;
+    height?: number;
+};
+
+export type ShowcaseAsset = ShowcasePlaceholderAsset | ShowcaseRemoteAsset;
+
+export type ShowcaseCaseDifficulty = 'beginner' | 'intermediate' | 'advanced';
+
+export type ShowcaseCase = {
+    id: string;
+    topicId: string;
+    slug: string;
+    title: ShowcaseLocalizedText;
+    summary: ShowcaseLocalizedText;
+    resultExplanation: ShowcaseLocalizedText;
+    inputGuidance: ShowcaseLocalizedText;
+    cautions: ShowcaseLocalizedText;
+    difficulty: ShowcaseCaseDifficulty;
+    sortOrder: number;
+    coverAssetId: string;
+    inputAssetIds: string[];
+    outputAssetIds: string[];
+    recipe: ShowcaseRecipeV1;
+};
+
+export type ShowcaseTopic = {
+    id: string;
+    slug: string;
+    title: ShowcaseLocalizedText;
+    summary: ShowcaseLocalizedText;
+    preparation: ShowcaseLocalizedText;
+    limitations: ShowcaseLocalizedText;
+    tags: ShowcaseLocalizedText[];
+    featured: boolean;
+    sortOrder: number;
+    coverAssetId: string;
+    caseIds: string[];
+};
+
+export type ShowcaseCatalog = {
+    schemaVersion: typeof SHOWCASE_CATALOG_SCHEMA_VERSION;
+    catalogRevision: string;
+    generatedAt: number;
+    contentNotice: ShowcaseLocalizedText;
+    topics: ShowcaseTopic[];
+    cases: ShowcaseCase[];
+    assets: ShowcaseAsset[];
+};
+
+/** Non-sensitive provenance attached to a workbench task or history entry. */
+export type ShowcaseAttribution = {
+    topicId: string;
+    caseId: string;
+    recipeVersion: number;
+    catalogRevision: string;
+};
+
+export function normalizeShowcaseAttribution(value: unknown): ShowcaseAttribution | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    const topicId = typeof record.topicId === 'string' ? record.topicId.trim() : '';
+    const caseId = typeof record.caseId === 'string' ? record.caseId.trim() : '';
+    const catalogRevision = typeof record.catalogRevision === 'string' ? record.catalogRevision.trim() : '';
+    const recipeVersion = record.recipeVersion;
+    if (
+        !topicId ||
+        !caseId ||
+        !catalogRevision ||
+        !ID_PATTERN.test(topicId) ||
+        !ID_PATTERN.test(caseId) ||
+        !REVISION_PATTERN.test(catalogRevision) ||
+        typeof recipeVersion !== 'number' ||
+        !Number.isInteger(recipeVersion) ||
+        recipeVersion < 1
+    ) {
+        return null;
+    }
+    return { topicId, caseId, recipeVersion, catalogRevision };
+}
+
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const LOCALIZED_TEXT_KEYS = new Set(['zh-CN', 'en-US']);
+const PLACEHOLDER_STYLE_KEYS = new Set(['label', 'backgroundColor', 'foregroundColor']);
+const ASSET_KEYS = new Set(['id', 'kind', 'alt', 'placeholder', 'url', 'mimeType', 'width', 'height']);
+const CASE_KEYS = new Set([
+    'id',
+    'topicId',
+    'slug',
+    'title',
+    'summary',
+    'resultExplanation',
+    'inputGuidance',
+    'cautions',
+    'difficulty',
+    'sortOrder',
+    'coverAssetId',
+    'inputAssetIds',
+    'outputAssetIds',
+    'recipe'
+]);
+const TOPIC_KEYS = new Set([
+    'id',
+    'slug',
+    'title',
+    'summary',
+    'preparation',
+    'limitations',
+    'tags',
+    'featured',
+    'sortOrder',
+    'coverAssetId',
+    'caseIds'
+]);
+const CATALOG_KEYS = new Set([
+    'schemaVersion',
+    'catalogRevision',
+    'generatedAt',
+    'contentNotice',
+    'topics',
+    'cases',
+    'assets'
+]);
+
+const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
+const REVISION_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/iu;
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/iu;
+const HTML_TAG_PATTERN = /<\/?[a-z][^>]*>/iu;
+const REMOTE_IMAGE_MIME_TYPES = new Set<ShowcaseRemoteAsset['mimeType']>([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/avif'
+]);
+const CASE_DIFFICULTIES = new Set<ShowcaseCaseDifficulty>(['beginner', 'intermediate', 'advanced']);
+const SENSITIVE_QUERY_KEYS = /(?:api[-_]?key|access[-_]?token|auth|credential|password|secret|signature)/iu;
+
+type UnknownRecord = Record<string, unknown>;
+
+function asStrictRecord(value: unknown, allowedKeys: ReadonlySet<string>): UnknownRecord | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+
+    const record = value as UnknownRecord;
+    for (const key of Object.keys(record)) {
+        if (DANGEROUS_KEYS.has(key) || !allowedKeys.has(key)) return null;
+    }
+    return record;
+}
+
+function asStrictArray(value: unknown): unknown[] | null {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
+
+    const keys = Object.keys(value);
+    if (keys.some((key) => !/^(?:0|[1-9]\d*)$/u.test(key) || Number(key) >= value.length)) return null;
+    for (let index = 0; index < value.length; index += 1) {
+        if (!Object.hasOwn(value, index)) return null;
+    }
+    return value;
+}
+
+function normalizeDisplayText(value: unknown, maxLength: number): string | null {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim();
+    if (
+        !normalized ||
+        normalized.length > maxLength ||
+        normalized.includes('\0') ||
+        HTML_TAG_PATTERN.test(normalized)
+    ) {
+        return null;
+    }
+    return normalized;
+}
+
+function normalizeLocalizedText(value: unknown, maxLength: number): ShowcaseLocalizedText | null {
+    const record = asStrictRecord(value, LOCALIZED_TEXT_KEYS);
+    if (!record) return null;
+
+    const zhCN = normalizeDisplayText(record['zh-CN'], maxLength);
+    const enUS = normalizeDisplayText(record['en-US'], maxLength);
+    if (!zhCN || !enUS) return null;
+    return { 'zh-CN': zhCN, 'en-US': enUS };
+}
+
+function normalizeIdentifier(value: unknown): string | null {
+    const normalized = normalizeDisplayText(value, 128);
+    if (!normalized || !ID_PATTERN.test(normalized)) return null;
+    return normalized;
+}
+
+function normalizeInteger(value: unknown, minimum: number, maximum: number): number | null {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum || value > maximum) return null;
+    return value;
+}
+
+function normalizeEnum<T extends string>(value: unknown, values: ReadonlySet<T>): T | null {
+    return typeof value === 'string' && values.has(value as T) ? (value as T) : null;
+}
+
+function normalizeIdArray(value: unknown, minimumItems: number, maximumItems: number): string[] | null {
+    const source = asStrictArray(value);
+    if (!source || source.length < minimumItems || source.length > maximumItems) return null;
+
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const item of source) {
+        const id = normalizeIdentifier(item);
+        if (!id || seen.has(id)) return null;
+        seen.add(id);
+        result.push(id);
+    }
+    return result;
+}
+
+function normalizeHttpsAssetUrl(value: unknown): string | null {
+    if (typeof value !== 'string' || !/^https:\/\//iu.test(value.trim())) return null;
+    const normalized = normalizePublicRuntimeConfigUrl(value);
+    if (!normalized) return null;
+
+    try {
+        const url = new URL(normalized);
+        if (url.protocol !== 'https:' || url.username || url.password) return null;
+        const hostname = url.hostname.toLowerCase().replace(/^\[/u, '').replace(/\]$/u, '');
+        if (hostname.endsWith('.local') || hostname.endsWith('.internal') || hostname.endsWith('.lan')) return null;
+        for (const key of url.searchParams.keys()) {
+            if (SENSITIVE_QUERY_KEYS.test(key)) return null;
+        }
+        return url.toString();
+    } catch {
+        return null;
+    }
+}
+
+function normalizePlaceholderAsset(
+    record: UnknownRecord,
+    id: string,
+    alt: ShowcaseLocalizedText
+): ShowcaseAsset | null {
+    if (
+        record.url !== undefined ||
+        record.mimeType !== undefined ||
+        record.width !== undefined ||
+        record.height !== undefined
+    ) {
+        return null;
+    }
+
+    const placeholderRecord = asStrictRecord(record.placeholder, PLACEHOLDER_STYLE_KEYS);
+    if (!placeholderRecord) return null;
+    const label = normalizeLocalizedText(placeholderRecord.label, 160);
+    const backgroundColor = normalizeDisplayText(placeholderRecord.backgroundColor, 7);
+    const foregroundColor = normalizeDisplayText(placeholderRecord.foregroundColor, 7);
+    if (
+        !label ||
+        !backgroundColor ||
+        !foregroundColor ||
+        !HEX_COLOR_PATTERN.test(backgroundColor) ||
+        !HEX_COLOR_PATTERN.test(foregroundColor)
+    ) {
+        return null;
+    }
+
+    return {
+        id,
+        kind: 'placeholder',
+        alt,
+        placeholder: { label, backgroundColor, foregroundColor }
+    };
+}
+
+function normalizeRemoteAsset(record: UnknownRecord, id: string, alt: ShowcaseLocalizedText): ShowcaseAsset | null {
+    if (record.placeholder !== undefined) return null;
+
+    const url = normalizeHttpsAssetUrl(record.url);
+    const mimeType = normalizeEnum(record.mimeType, REMOTE_IMAGE_MIME_TYPES);
+    if (!url || !mimeType) return null;
+
+    const hasWidth = record.width !== undefined;
+    const hasHeight = record.height !== undefined;
+    if (hasWidth !== hasHeight) return null;
+
+    const asset: ShowcaseRemoteAsset = { id, kind: 'remote-image', alt, url, mimeType };
+    if (hasWidth && hasHeight) {
+        const width = normalizeInteger(record.width, 1, 16_384);
+        const height = normalizeInteger(record.height, 1, 16_384);
+        if (width === null || height === null) return null;
+        asset.width = width;
+        asset.height = height;
+    }
+    return asset;
+}
+
+export function normalizeShowcaseAsset(value: unknown): ShowcaseAsset | null {
+    const record = asStrictRecord(value, ASSET_KEYS);
+    if (!record) return null;
+
+    const id = normalizeIdentifier(record.id);
+    const alt = normalizeLocalizedText(record.alt, 500);
+    if (!id || !alt) return null;
+
+    if (record.kind === 'placeholder') return normalizePlaceholderAsset(record, id, alt);
+    if (record.kind === 'remote-image') return normalizeRemoteAsset(record, id, alt);
+    return null;
+}
+
+export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
+    const record = asStrictRecord(value, CASE_KEYS);
+    if (!record) return null;
+
+    const id = normalizeIdentifier(record.id);
+    const topicId = normalizeIdentifier(record.topicId);
+    const slug = normalizeIdentifier(record.slug);
+    const title = normalizeLocalizedText(record.title, 160);
+    const summary = normalizeLocalizedText(record.summary, 1_000);
+    const resultExplanation = normalizeLocalizedText(record.resultExplanation, 2_000);
+    const inputGuidance = normalizeLocalizedText(record.inputGuidance, 2_000);
+    const cautions = normalizeLocalizedText(record.cautions, 2_000);
+    const difficulty = normalizeEnum(record.difficulty, CASE_DIFFICULTIES);
+    const sortOrder = normalizeInteger(record.sortOrder, 0, 1_000_000);
+    const coverAssetId = normalizeIdentifier(record.coverAssetId);
+    const inputAssetIds = normalizeIdArray(record.inputAssetIds, 0, 32);
+    const outputAssetIds = normalizeIdArray(record.outputAssetIds, 1, 32);
+    const recipe = normalizeShowcaseRecipe(record.recipe);
+
+    if (
+        !id ||
+        !topicId ||
+        !slug ||
+        !title ||
+        !summary ||
+        !resultExplanation ||
+        !inputGuidance ||
+        !cautions ||
+        !difficulty ||
+        sortOrder === null ||
+        !coverAssetId ||
+        !inputAssetIds ||
+        !outputAssetIds ||
+        !recipe
+    ) {
+        return null;
+    }
+
+    if (recipe.taskMode === 'image-edit' && inputAssetIds.length === 0) return null;
+    if (inputAssetIds.some((assetId) => outputAssetIds.includes(assetId))) return null;
+
+    return {
+        id,
+        topicId,
+        slug,
+        title,
+        summary,
+        resultExplanation,
+        inputGuidance,
+        cautions,
+        difficulty,
+        sortOrder,
+        coverAssetId,
+        inputAssetIds,
+        outputAssetIds,
+        recipe
+    };
+}
+
+export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
+    const record = asStrictRecord(value, TOPIC_KEYS);
+    if (!record || typeof record.featured !== 'boolean') return null;
+
+    const id = normalizeIdentifier(record.id);
+    const slug = normalizeIdentifier(record.slug);
+    const title = normalizeLocalizedText(record.title, 160);
+    const summary = normalizeLocalizedText(record.summary, 1_000);
+    const preparation = normalizeLocalizedText(record.preparation, 2_000);
+    const limitations = normalizeLocalizedText(record.limitations, 2_000);
+    const sortOrder = normalizeInteger(record.sortOrder, 0, 1_000_000);
+    const coverAssetId = normalizeIdentifier(record.coverAssetId);
+    const caseIds = normalizeIdArray(record.caseIds, 1, 128);
+    const rawTags = asStrictArray(record.tags);
+    if (
+        !id ||
+        !slug ||
+        !title ||
+        !summary ||
+        !preparation ||
+        !limitations ||
+        sortOrder === null ||
+        !coverAssetId ||
+        !caseIds ||
+        !rawTags ||
+        rawTags.length === 0 ||
+        rawTags.length > 16
+    ) {
+        return null;
+    }
+
+    const tags: ShowcaseLocalizedText[] = [];
+    const tagKeys = new Set<string>();
+    for (const rawTag of rawTags) {
+        const tag = normalizeLocalizedText(rawTag, 80);
+        if (!tag) return null;
+        const tagKey = `${tag['zh-CN']}\0${tag['en-US']}`.toLocaleLowerCase();
+        if (tagKeys.has(tagKey)) return null;
+        tagKeys.add(tagKey);
+        tags.push(tag);
+    }
+
+    return {
+        id,
+        slug,
+        title,
+        summary,
+        preparation,
+        limitations,
+        tags,
+        featured: record.featured,
+        sortOrder,
+        coverAssetId,
+        caseIds
+    };
+}
+
+function normalizeCollection<T>(
+    value: unknown,
+    normalizeItem: (item: unknown) => T | null,
+    maximumItems: number
+): T[] | null {
+    const source = asStrictArray(value);
+    if (!source || source.length > maximumItems) return null;
+
+    const result: T[] = [];
+    for (const item of source) {
+        const normalized = normalizeItem(item);
+        if (!normalized) return null;
+        result.push(normalized);
+    }
+    return result;
+}
+
+function hasDuplicate<T>(items: T[], getValue: (item: T) => string): boolean {
+    const seen = new Set<string>();
+    for (const item of items) {
+        const value = getValue(item);
+        if (seen.has(value)) return true;
+        seen.add(value);
+    }
+    return false;
+}
+
+export function normalizeShowcaseCatalog(value: unknown): ShowcaseCatalog | null {
+    const record = asStrictRecord(value, CATALOG_KEYS);
+    if (!record) return null;
+
+    const schemaVersion = record.schemaVersion ?? SHOWCASE_CATALOG_SCHEMA_VERSION;
+    if (schemaVersion !== SHOWCASE_CATALOG_SCHEMA_VERSION) return null;
+
+    const catalogRevision = normalizeDisplayText(record.catalogRevision, 128);
+    const generatedAt = normalizeInteger(record.generatedAt, 1, Number.MAX_SAFE_INTEGER);
+    const contentNotice = normalizeLocalizedText(record.contentNotice, 1_000);
+    const topics = normalizeCollection(record.topics, normalizeShowcaseTopic, 256);
+    const cases = normalizeCollection(record.cases, normalizeShowcaseCase, 4_096);
+    const assets = normalizeCollection(record.assets, normalizeShowcaseAsset, 16_384);
+    if (
+        !catalogRevision ||
+        !REVISION_PATTERN.test(catalogRevision) ||
+        generatedAt === null ||
+        !contentNotice ||
+        !topics ||
+        !cases ||
+        !assets
+    ) {
+        return null;
+    }
+
+    if (
+        hasDuplicate(topics, (topic) => topic.id) ||
+        hasDuplicate(topics, (topic) => topic.slug) ||
+        hasDuplicate(cases, (showcaseCase) => showcaseCase.id) ||
+        hasDuplicate(assets, (asset) => asset.id)
+    ) {
+        return null;
+    }
+
+    const topicById = new Map(topics.map((topic) => [topic.id, topic]));
+    const caseById = new Map(cases.map((showcaseCase) => [showcaseCase.id, showcaseCase]));
+    const assetIds = new Set(assets.map((asset) => asset.id));
+    const ownedCaseIds = new Set<string>();
+
+    for (const topic of topics) {
+        if (!assetIds.has(topic.coverAssetId)) return null;
+        const caseSlugs = new Set<string>();
+        for (const caseId of topic.caseIds) {
+            const showcaseCase = caseById.get(caseId);
+            if (!showcaseCase || showcaseCase.topicId !== topic.id || ownedCaseIds.has(caseId)) return null;
+            if (caseSlugs.has(showcaseCase.slug)) return null;
+            caseSlugs.add(showcaseCase.slug);
+            ownedCaseIds.add(caseId);
+        }
+    }
+
+    for (const showcaseCase of cases) {
+        if (!topicById.has(showcaseCase.topicId) || !ownedCaseIds.has(showcaseCase.id)) return null;
+        const referencedAssetIds = [
+            showcaseCase.coverAssetId,
+            ...showcaseCase.inputAssetIds,
+            ...showcaseCase.outputAssetIds
+        ];
+        if (referencedAssetIds.some((assetId) => !assetIds.has(assetId))) return null;
+    }
+
+    return {
+        schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
+        catalogRevision,
+        generatedAt,
+        contentNotice,
+        topics: [...topics].sort((left, right) => left.sortOrder - right.sortOrder),
+        cases: [...cases].sort((left, right) => left.sortOrder - right.sortOrder),
+        assets
+    };
+}
