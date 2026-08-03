@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import type { ShowcaseCatalog } from '@/lib/showcase';
 import { ArrowRight, Compass, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
+import * as React from 'react';
 
 export type ShowcaseSectionProps = {
     catalog?: ShowcaseCatalog;
@@ -16,7 +17,29 @@ export type ShowcaseSectionProps = {
 
 export function ShowcaseSection({ catalog: catalogOverride, className, maxTopics = 3 }: ShowcaseSectionProps) {
     const { t } = useAppLanguage();
-    const state = useShowcaseCatalog(catalogOverride);
+    const sectionRef = React.useRef<HTMLElement | null>(null);
+    const [shouldLoad, setShouldLoad] = React.useState(Boolean(catalogOverride));
+    const state = useShowcaseCatalog(catalogOverride, { enabled: shouldLoad });
+
+    React.useEffect(() => {
+        if (catalogOverride || shouldLoad) return;
+        const node = sectionRef.current;
+        if (!node || typeof IntersectionObserver === 'undefined') {
+            setShouldLoad(true);
+            return;
+        }
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    setShouldLoad(true);
+                    observer.disconnect();
+                }
+            },
+            { rootMargin: '320px', threshold: 0.01 }
+        );
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [catalogOverride, shouldLoad]);
     const topics = state.catalog.topics
         .filter((topic) => topic.featured)
         .sort((left, right) => left.sortOrder - right.sortOrder)
@@ -24,6 +47,7 @@ export function ShowcaseSection({ catalog: catalogOverride, className, maxTopics
 
     return (
         <section
+            ref={sectionRef}
             className={`app-panel-card min-w-0 rounded-2xl border p-4 shadow-sm sm:p-5 ${className ?? ''}`}
             aria-labelledby='showcase-section-title'>
             <div className='mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
@@ -65,9 +89,11 @@ export function ShowcaseSection({ catalog: catalogOverride, className, maxTopics
                 {state.isLoading || state.source === 'cache' ? (
                     <RefreshCw className={`size-3 ${state.isLoading ? 'animate-spin' : ''}`} aria-hidden='true' />
                 ) : null}
-                {state.isLoading
-                    ? t('showcase.source.loading')
-                    : t(getShowcaseCatalogSourceMessageKey(state.source, state.stale))}
+                {!shouldLoad
+                    ? t('showcase.source.readyToLoad')
+                    : state.isLoading
+                      ? t('showcase.source.loading')
+                      : t(getShowcaseCatalogSourceMessageKey(state.source, state.stale))}
             </div>
         </section>
     );

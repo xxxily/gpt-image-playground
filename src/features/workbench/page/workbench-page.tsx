@@ -148,6 +148,7 @@ import {
 } from '@/lib/provider-model-catalog';
 import { mergeProviderOptions } from '@/lib/provider-options';
 import { getOpenAICompatibleProviderDefaults } from '@/lib/providers/openai-compatible-presets';
+import { getScenarioSizeOptions } from '@/lib/scenario-image-sizes';
 import { decryptShareParams } from '@/lib/share-crypto';
 import {
     buildPromptOnlyUrlParams,
@@ -3871,7 +3872,8 @@ export default function HomePage() {
             const currentPrompt = getWorkbenchPrompt();
             const nextPrompt = applyShowcasePrompt(currentPrompt, submission.prompt, submission.promptMode);
             const recipeValues = resolveShowcaseRecipeWorkbenchValues(showcaseGuideCase.recipe, submission.prompt);
-            const nextFiles = submission.imageMode === 'append' ? [...editImageFiles, ...submission.files] : submission.files;
+            const nextFiles =
+                submission.imageMode === 'append' ? [...editImageFiles, ...submission.files] : submission.files;
 
             const validation = validateImageReferenceFiles(nextFiles, {
                 ...getImageReferenceConstraints(editModel, {
@@ -3901,6 +3903,20 @@ export default function HomePage() {
                 setScenarioSelectedEditSize(null);
                 setEditCustomWidth(recipeValues.customWidth);
                 setEditCustomHeight(recipeValues.customHeight);
+            } else if (recipeValues.scenarioId) {
+                const scenarioOption = getScenarioSizeOptions(editModel, appConfig.customImageModels).find(
+                    (option) => option.source.id === recipeValues.scenarioId && option.valid
+                );
+                if (scenarioOption) {
+                    setEditSize(scenarioOption.modelSize);
+                    setScenarioSelectedEditSize(scenarioOption.modelSize);
+                    if (scenarioOption.modelSize === 'custom') {
+                        setEditCustomWidth(scenarioOption.width);
+                        setEditCustomHeight(scenarioOption.height);
+                    }
+                } else {
+                    addNotice(t('showcase.notice.scenarioUnavailable'), 'warning');
+                }
             }
             if (recipeValues.quality) setEditQuality(recipeValues.quality);
             if (recipeValues.outputFormat) setOutputFormat(recipeValues.outputFormat);
@@ -3947,6 +3963,27 @@ export default function HomePage() {
             showcaseCatalog?.catalogRevision,
             t
         ]
+    );
+
+    const loadShowcaseHistoryImage = React.useCallback(
+        async (entry: HistoryMetadata, imageIndex: number): Promise<File | null> => {
+            const image = entry.images[imageIndex];
+            if (!image) return null;
+            return loadHistoryAssetAsFile(
+                {
+                    filename: image.filename,
+                    path: image.path,
+                    storageModeUsed: entry.storageModeUsed ?? effectiveStorageModeClient,
+                    size: image.size,
+                    source: 'history-image'
+                },
+                {
+                    desktopStoragePath: appConfig.imageStoragePath || undefined,
+                    passwordHash: clientPasswordHash
+                }
+            );
+        },
+        [appConfig.imageStoragePath, clientPasswordHash]
     );
 
     const handleWorkspacePanelTabChange = React.useCallback((side: 'left' | 'right', tab: WorkspacePanelTab) => {
@@ -7487,6 +7524,9 @@ export default function HomePage() {
                 compatibility: showcaseModelCompatibility,
                 modelLabel: editModelDefinition.label,
                 recommendedModelLabels: showcaseRecommendedModels,
+                history,
+                getHistoryImageSrc: getImageSrc,
+                onLoadHistoryImage: loadShowcaseHistoryImage,
                 onOpenChange: (open) => {
                     setShowcaseGuideOpen(open);
                     if (!open) {

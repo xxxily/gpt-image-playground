@@ -163,7 +163,7 @@ describe('showcase item normalizers', () => {
     it('strictly rejects unknown nested fields in assets, cases, and topics', () => {
         expect(normalizeShowcaseAsset({ ...placeholderAsset('asset-one'), localPath: '/tmp/image.png' })).toBeNull();
         expect(normalizeShowcaseCase({ ...showcaseCase(), enabled: true })).toBeNull();
-        expect(normalizeShowcaseTopic({ ...topic(), relatedTopicIds: [] })).toBeNull();
+        expect(normalizeShowcaseTopic({ ...topic(), internalNotes: [] })).toBeNull();
         expect(
             normalizeShowcaseTopic({
                 ...topic(),
@@ -203,7 +203,22 @@ describe('normalizeShowcaseCatalog', () => {
         const custom = catalog({
             catalogRevision: 'customer-curated-42',
             generatedAt: 1_900_000_000_000,
-            topics: [topic({ sortOrder: 80 })],
+            topics: [
+                topic({
+                    sortOrder: 80,
+                    capabilities: localized('可完成常见修图任务。', 'Supports common image-editing tasks.'),
+                    suitableFor: localized('适合快速开始。', 'Good for getting started quickly.'),
+                    unsuitableFor: localized('不用于法定身份材料。', 'Not for legal identity documents.'),
+                    recommendedInputQuality: localized('使用清晰原图。', 'Use a clear original image.'),
+                    faq: [
+                        {
+                            question: localized('会自动生成吗？', 'Does it auto-generate?'),
+                            answer: localized('不会。', 'No.')
+                        }
+                    ],
+                    relatedTopicIds: []
+                })
+            ],
             cases: [showcaseCase({ difficulty: 'advanced', sortOrder: 90 })]
         });
 
@@ -270,6 +285,24 @@ describe('normalizeShowcaseCatalog', () => {
         expect(normalizeShowcaseCatalog(catalog({ topics: [topic({ coverAssetId: 'missing-asset' })] }))).toBeNull();
         expect(
             normalizeShowcaseCatalog(catalog({ cases: [showcaseCase({ inputAssetIds: ['missing-asset'] })] }))
+        ).toBeNull();
+        expect(
+            normalizeShowcaseCatalog(catalog({ topics: [topic({ relatedTopicIds: ['missing-topic'] })] }))
+        ).toBeNull();
+        expect(normalizeShowcaseCatalog(catalog({ topics: [topic({ relatedTopicIds: ['topic-one'] })] }))).toBeNull();
+    });
+
+    it('can defer external related-topic references for a single-topic draft while still rejecting self-links', () => {
+        expect(
+            normalizeShowcaseCatalog(
+                catalog({ topics: [topic({ relatedTopicIds: ['topic-from-another-publication'] })] }),
+                { allowDanglingRelatedTopicIds: true }
+            )
+        ).not.toBeNull();
+        expect(
+            normalizeShowcaseCatalog(catalog({ topics: [topic({ relatedTopicIds: ['topic-one'] })] }), {
+                allowDanglingRelatedTopicIds: true
+            })
         ).toBeNull();
     });
 

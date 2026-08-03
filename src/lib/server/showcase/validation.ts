@@ -24,15 +24,18 @@ export function normalizeShowcaseTopicDraft(value: unknown): ShowcaseTopicDraft 
     if (Object.keys(record).some((key) => !['topic', 'cases', 'assets'].includes(key))) return null;
 
     const generatedAt = Date.now();
-    const candidate = normalizeShowcaseCatalog({
-        schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
-        catalogRevision: `draft-${generatedAt}`,
-        generatedAt,
-        contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
-        topics: record.topic ? [record.topic] : [],
-        cases: record.cases,
-        assets: record.assets
-    });
+    const candidate = normalizeShowcaseCatalog(
+        {
+            schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
+            catalogRevision: `draft-${generatedAt}`,
+            generatedAt,
+            contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
+            topics: record.topic ? [record.topic] : [],
+            cases: record.cases,
+            assets: record.assets
+        },
+        { allowDanglingRelatedTopicIds: true }
+    );
     if (!candidate || candidate.topics.length !== 1) return null;
 
     const topic = candidate.topics[0];
@@ -45,15 +48,18 @@ export function buildCatalogFromTopicDraft(
     catalogRevision: string,
     generatedAt = Date.now()
 ): ShowcaseCatalog {
-    const catalog = normalizeShowcaseCatalog({
-        schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
-        catalogRevision,
-        generatedAt,
-        contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
-        topics: [draft.topic],
-        cases: draft.cases,
-        assets: draft.assets
-    });
+    const catalog = normalizeShowcaseCatalog(
+        {
+            schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
+            catalogRevision,
+            generatedAt,
+            contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
+            topics: [draft.topic],
+            cases: draft.cases,
+            assets: draft.assets
+        },
+        { allowDanglingRelatedTopicIds: true }
+    );
     if (!catalog) throw new Error('专题草稿不完整或包含不安全内容。');
     return catalog;
 }

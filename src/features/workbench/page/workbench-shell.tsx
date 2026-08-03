@@ -25,6 +25,7 @@ import type { ConfigurationGuidanceTarget } from '@/lib/configuration-guidance';
 import type { ShowcaseCase, ShowcaseTopic } from '@/lib/showcase';
 import type { ShowcaseModelCompatibility } from '@/lib/showcase-recipe';
 import { ALL_CREATIVE_WORKSPACES_ID } from '@/types/creative-workspace';
+import type { HistoryMetadata } from '@/types/history';
 import type { WorkspacePanelTab } from '@/types/workspace-panel';
 import { Boxes, Compass, FolderKanban, X } from 'lucide-react';
 import * as React from 'react';
@@ -118,6 +119,9 @@ type WorkbenchShellProps = {
         compatibility: ShowcaseModelCompatibility | null;
         modelLabel: string;
         recommendedModelLabels?: string[];
+        history?: HistoryMetadata[];
+        getHistoryImageSrc?: (filename: string) => string | undefined;
+        onLoadHistoryImage?: (entry: HistoryMetadata, imageIndex: number) => Promise<File | null>;
         onOpenChange: (open: boolean) => void;
         onOpenModelSettings: () => void;
         onConfirm: (submission: ShowcaseGuideSubmission) => void;

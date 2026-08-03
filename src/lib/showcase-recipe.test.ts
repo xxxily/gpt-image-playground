@@ -4,7 +4,8 @@ import {
     evaluateShowcaseModelCompatibility,
     normalizeShowcaseRecipe,
     resolveShowcaseRecipeWorkbenchValues,
-    SHOWCASE_RECIPE_VERSION
+    SHOWCASE_RECIPE_VERSION,
+    syncShowcasePromptWithUserInstruction
 } from './showcase-recipe';
 import type { ShowcaseInputSlot, ShowcaseRecipeV1 } from './showcase-recipe';
 import { describe, expect, it } from 'vitest';
@@ -228,6 +229,26 @@ describe('showcase recipe application helpers', () => {
         expect(applyShowcasePrompt('已有内容', '专题内容', 'keep')).toBe('已有内容');
     });
 
+    it('updates the generated prompt for personalization without overwriting manual edits', () => {
+        const recipe = validRecipe({
+            prompt: { 'zh-CN': '修复照片。{{user_instruction}}', 'en-US': 'Restore the photo. {{user_instruction}}' },
+            userInstruction: { enabled: true, maxLength: 20, placeholderKey: 'user_instruction' }
+        });
+
+        expect(syncShowcasePromptWithUserInstruction(recipe, 'zh-CN', '', '保留衣服颜色', '修复照片。')).toBe(
+            '修复照片。保留衣服颜色'
+        );
+        expect(
+            syncShowcasePromptWithUserInstruction(
+                recipe,
+                'zh-CN',
+                '保留衣服颜色',
+                '去除划痕',
+                '这是用户手动改写的完整提示词'
+            )
+        ).toBe('这是用户手动改写的完整提示词');
+    });
+
     it('reports concrete model incompatibilities and exposes only workbench-safe values', () => {
         const recipe = validRecipe({
             capabilityRequirements: {
@@ -256,6 +277,18 @@ describe('showcase recipe application helpers', () => {
             size: '832x1248',
             quality: 'high',
             outputFormat: 'webp'
+        });
+    });
+
+    it('preserves a scenario size identifier for model-specific resolution in the workbench', () => {
+        const recipe = validRecipe({ output: { n: 1, scenarioId: 'xiaohongshu-cover', quality: 'high' } });
+
+        expect(resolveShowcaseRecipeWorkbenchValues(recipe, 'prompt')).toEqual({
+            taskMode: 'image-edit',
+            prompt: 'prompt',
+            n: 1,
+            scenarioId: 'xiaohongshu-cover',
+            quality: 'high'
         });
     });
 });

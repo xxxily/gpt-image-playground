@@ -21,12 +21,20 @@ function createInitialState(catalog?: ShowcaseCatalog): UseShowcaseCatalogResult
     };
 }
 
-export function useShowcaseCatalog(catalogOverride?: ShowcaseCatalog): UseShowcaseCatalogResult {
+export function useShowcaseCatalog(
+    catalogOverride?: ShowcaseCatalog,
+    options: { enabled?: boolean } = {}
+): UseShowcaseCatalogResult {
+    const enabled = options.enabled ?? true;
     const [state, setState] = React.useState<UseShowcaseCatalogResult>(() => createInitialState(catalogOverride));
 
     React.useEffect(() => {
         if (catalogOverride) {
             setState(createInitialState(catalogOverride));
+            return;
+        }
+        if (!enabled) {
+            setState(createInitialState());
             return;
         }
 
@@ -42,7 +50,7 @@ export function useShowcaseCatalog(catalogOverride?: ShowcaseCatalog): UseShowca
             active = false;
             controller.abort();
         };
-    }, [catalogOverride]);
+    }, [catalogOverride, enabled]);
 
     return state;
 }

@@ -5,6 +5,7 @@ import { useNotice } from '@/components/notice-provider';
 import { ShowcaseTopicDetail } from '@/components/showcase/showcase-detail';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogContent,
@@ -15,14 +16,17 @@ import {
 } from '@/components/ui/dialog';
 import { Heading } from '@/components/ui/heading';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { translateMessage } from '@/lib/i18n/translator';
 import type { ShowcaseAdminTopic, ShowcasePublicationSummary, ShowcaseTopicDraft } from '@/lib/server/showcase/types';
 import type { ShowcaseCatalog } from '@/lib/showcase';
-import { translateMessage } from '@/lib/i18n/translator';
+import { setShowcaseRecipeOutputQuality, setShowcaseRecipeOutputSize } from '@/lib/showcase-admin-draft';
 import { cn } from '@/lib/utils';
 import {
     Archive,
     CheckCircle2,
+    Copy,
     Eye,
     Loader2,
     Plus,
@@ -130,6 +134,21 @@ function replaceDraftIdentity(draft: ShowcaseTopicDraft, suffix: string): Showca
     };
 }
 
+function parseTagLines(value: string): ShowcaseTopicDraft['topic']['tags'] {
+    return value
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+            const [zhCN = '', enUS = zhCN] = line.split('|').map((part) => part.trim());
+            return { 'zh-CN': zhCN, 'en-US': enUS || zhCN };
+        });
+}
+
+function stringifyTagLines(tags: ShowcaseTopicDraft['topic']['tags']): string {
+    return tags.map((tag) => `${tag['zh-CN']} | ${tag['en-US']}`).join('\n');
+}
+
 export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDraft }: ShowcaseAdminClientProps) {
     const { t, formatDateTime } = useAppLanguage();
     const { addNotice } = useNotice();
@@ -149,6 +168,7 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
     const [jsonError, setJsonError] = React.useState('');
     const [previewCatalog, setPreviewCatalog] = React.useState<ShowcaseCatalog | null>(null);
     const [confirmAction, setConfirmAction] = React.useState<ConfirmAction | null>(null);
+    const [editorTab, setEditorTab] = React.useState<'structured' | 'advanced'>('structured');
 
     const selectedTopic = topics.find((topic) => topic.id === selectedId) ?? null;
 
@@ -227,6 +247,20 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         setDraftJson(formatJson(replaceDraftIdentity(defaultDraft, suffix)));
         setStartsAt('');
         setEndsAt('');
+    };
+
+    const startCopy = () => {
+        if (!selectedTopic) return;
+        const suffix = Date.now().toString(36).slice(-6);
+        setIsCreating(true);
+        setSelectedId('');
+        setDetail(null);
+        setPreviewCatalog(null);
+        setJsonError('');
+        setDraftJson(formatJson(replaceDraftIdentity(selectedTopic.draft, suffix)));
+        setStartsAt('');
+        setEndsAt('');
+        setEditorTab('structured');
     };
 
     const parseDraft = (): ShowcaseTopicDraft | null => {
@@ -342,6 +376,25 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         }
     }, [draftJson]);
 
+    const updateStructuredDraft = (mutate: (draft: ShowcaseTopicDraft) => ShowcaseTopicDraft) => {
+        if (!parsedDraft) return;
+        setDraftJson(formatJson(mutate(parsedDraft)));
+        setJsonError('');
+    };
+
+    const updateTopicText = (field: keyof ShowcaseTopicDraft['topic'], language: 'zh-CN' | 'en-US', value: string) => {
+        updateStructuredDraft((draft) => ({
+            ...draft,
+            topic: {
+                ...draft.topic,
+                [field]: {
+                    ...(draft.topic[field] as Record<string, string>),
+                    [language]: value
+                }
+            }
+        }));
+    };
+
     return (
         <section className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
@@ -363,6 +416,14 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                     <Button size='sm' onClick={startCreate} disabled={!canWrite || Boolean(busyKey)}>
                         <Plus className='h-4 w-4' />
                         {t('admin.showcases.new')}
+                    </Button>
+                    <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={startCopy}
+                        disabled={!canWrite || !selectedTopic || isCreating || Boolean(busyKey)}>
+                        <Copy className='h-4 w-4' />
+                        {t('admin.showcases.copy')}
                     </Button>
                 </div>
             </div>
@@ -489,14 +550,20 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                     />
                                 </label>
                             </div>
-                            <div className='space-y-1.5'>
-                                <div className='flex flex-wrap items-center justify-between gap-2'>
-                                    <div>
-                                        <p className='text-sm font-medium'>{t('admin.showcases.editor.jsonTitle')}</p>
-                                        <p className='text-muted-foreground text-xs'>
-                                            {t('admin.showcases.editor.jsonDescription')}
-                                        </p>
-                                    </div>
+                            <Tabs
+                                value={editorTab}
+                                onValueChange={(value) =>
+                                    setEditorTab(value === 'advanced' ? 'advanced' : 'structured')
+                                }>
+                                <div className='flex flex-wrap items-center justify-between gap-3'>
+                                    <TabsList className='w-full sm:w-auto'>
+                                        <TabsTrigger value='structured'>
+                                            {t('admin.showcases.editor.structured')}
+                                        </TabsTrigger>
+                                        <TabsTrigger value='advanced'>
+                                            {t('admin.showcases.editor.advanced')}
+                                        </TabsTrigger>
+                                    </TabsList>
                                     <div className='text-muted-foreground flex items-center gap-3 text-xs'>
                                         <span>
                                             {t('admin.showcases.caseCount', { count: parsedDraft?.cases.length ?? 0 })}
@@ -508,16 +575,557 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                         </span>
                                     </div>
                                 </div>
-                                <Textarea
-                                    value={draftJson}
-                                    onChange={(event) => setDraftJson(event.target.value)}
-                                    disabled={!canWrite}
-                                    spellCheck={false}
-                                    data-i18n-skip='true'
-                                    className='bg-panel-ghost min-h-[34rem] resize-y rounded-xl font-mono text-xs leading-5'
-                                />
-                                {jsonError ? <p className='text-destructive text-xs'>{jsonError}</p> : null}
-                            </div>
+                                <TabsContent value='structured' className='mt-3 space-y-4'>
+                                    {parsedDraft ? (
+                                        <>
+                                            <div className='grid gap-3 sm:grid-cols-2'>
+                                                <label className='space-y-1.5 text-sm'>
+                                                    <span className='font-medium'>{t('admin.showcases.field.id')}</span>
+                                                    <Input
+                                                        name='showcase-topic-id'
+                                                        autoComplete='off'
+                                                        value={parsedDraft.topic.id}
+                                                        disabled={!canWrite || !isCreating}
+                                                        onChange={(event) =>
+                                                            updateStructuredDraft((draft) => ({
+                                                                ...draft,
+                                                                topic: { ...draft.topic, id: event.target.value }
+                                                            }))
+                                                        }
+                                                    />
+                                                </label>
+                                                <label className='space-y-1.5 text-sm'>
+                                                    <span className='font-medium'>
+                                                        {t('admin.showcases.field.slug')}
+                                                    </span>
+                                                    <Input
+                                                        name='showcase-topic-slug'
+                                                        autoComplete='off'
+                                                        value={parsedDraft.topic.slug}
+                                                        disabled={!canWrite}
+                                                        onChange={(event) =>
+                                                            updateStructuredDraft((draft) => ({
+                                                                ...draft,
+                                                                topic: { ...draft.topic, slug: event.target.value }
+                                                            }))
+                                                        }
+                                                    />
+                                                </label>
+                                                <label className='space-y-1.5 text-sm'>
+                                                    <span className='font-medium'>
+                                                        {t('admin.showcases.field.sortOrder')}
+                                                    </span>
+                                                    <Input
+                                                        name='showcase-topic-sort-order'
+                                                        type='number'
+                                                        min={0}
+                                                        value={parsedDraft.topic.sortOrder}
+                                                        disabled={!canWrite}
+                                                        onChange={(event) =>
+                                                            updateStructuredDraft((draft) => ({
+                                                                ...draft,
+                                                                topic: {
+                                                                    ...draft.topic,
+                                                                    sortOrder: Number(event.target.value) || 0
+                                                                }
+                                                            }))
+                                                        }
+                                                    />
+                                                </label>
+                                                <label className='border-border flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm sm:self-end'>
+                                                    <Checkbox
+                                                        checked={parsedDraft.topic.featured}
+                                                        disabled={!canWrite}
+                                                        onCheckedChange={(checked) =>
+                                                            updateStructuredDraft((draft) => ({
+                                                                ...draft,
+                                                                topic: { ...draft.topic, featured: checked === true }
+                                                            }))
+                                                        }
+                                                    />
+                                                    <span>{t('admin.showcases.field.featured')}</span>
+                                                </label>
+                                            </div>
+
+                                            <div className='grid gap-4 lg:grid-cols-2'>
+                                                {(['zh-CN', 'en-US'] as const).map((locale) => (
+                                                    <div
+                                                        key={locale}
+                                                        className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
+                                                        <p className='text-sm font-semibold'>
+                                                            {t(`admin.showcases.language.${locale}`)}
+                                                        </p>
+                                                        {(
+                                                            [
+                                                                'title',
+                                                                'summary',
+                                                                'preparation',
+                                                                'limitations',
+                                                                'capabilities',
+                                                                'suitableFor',
+                                                                'unsuitableFor',
+                                                                'recommendedInputQuality'
+                                                            ] as const
+                                                        ).map((field) => {
+                                                            const value = parsedDraft.topic[field]?.[locale] ?? '';
+                                                            const label = t(`admin.showcases.field.${field}`);
+                                                            return field === 'title' ? (
+                                                                <label
+                                                                    key={field}
+                                                                    className='block space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>{label}</span>
+                                                                    <Input
+                                                                        name={`showcase-${field}-${locale}`}
+                                                                        autoComplete='off'
+                                                                        value={value}
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateTopicText(
+                                                                                field,
+                                                                                locale,
+                                                                                event.target.value
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                </label>
+                                                            ) : (
+                                                                <label
+                                                                    key={field}
+                                                                    className='block space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>{label}</span>
+                                                                    <Textarea
+                                                                        name={`showcase-${field}-${locale}`}
+                                                                        value={value}
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateTopicText(
+                                                                                field,
+                                                                                locale,
+                                                                                event.target.value
+                                                                            )
+                                                                        }
+                                                                        className='min-h-20'
+                                                                    />
+                                                                </label>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <label className='block space-y-1.5 text-sm'>
+                                                <span className='font-medium'>{t('admin.showcases.field.tags')}</span>
+                                                <Textarea
+                                                    name='showcase-topic-tags'
+                                                    value={stringifyTagLines(parsedDraft.topic.tags)}
+                                                    disabled={!canWrite}
+                                                    onChange={(event) =>
+                                                        updateStructuredDraft((draft) => ({
+                                                            ...draft,
+                                                            topic: {
+                                                                ...draft.topic,
+                                                                tags: parseTagLines(event.target.value)
+                                                            }
+                                                        }))
+                                                    }
+                                                    className='min-h-24 font-mono text-xs'
+                                                />
+                                                <span className='text-muted-foreground block text-xs'>
+                                                    {t('admin.showcases.field.tagsHint')}
+                                                </span>
+                                            </label>
+
+                                            <div className='space-y-2'>
+                                                <div>
+                                                    <p className='text-sm font-medium'>
+                                                        {t('admin.showcases.cases.title')}
+                                                    </p>
+                                                    <p className='text-muted-foreground text-xs'>
+                                                        {t('admin.showcases.cases.description')}
+                                                    </p>
+                                                </div>
+                                                {parsedDraft.cases.map((item, index) => (
+                                                    <details
+                                                        key={item.id}
+                                                        className='border-border bg-panel-ghost rounded-xl border p-3'>
+                                                        <summary className='cursor-pointer text-sm font-medium'>
+                                                            {index + 1}.{' '}
+                                                            <span data-i18n-skip='true'>
+                                                                {item.title['zh-CN']} / {item.slug}
+                                                            </span>
+                                                        </summary>
+                                                        <div className='mt-3 grid gap-3 sm:grid-cols-2'>
+                                                            <label className='space-y-1.5 text-sm'>
+                                                                <span className='font-medium'>
+                                                                    {t('admin.showcases.field.titleZh')}
+                                                                </span>
+                                                                <Input
+                                                                    value={item.title['zh-CN']}
+                                                                    disabled={!canWrite}
+                                                                    onChange={(event) =>
+                                                                        updateStructuredDraft((draft) => ({
+                                                                            ...draft,
+                                                                            cases: draft.cases.map((candidate) =>
+                                                                                candidate.id === item.id
+                                                                                    ? {
+                                                                                          ...candidate,
+                                                                                          title: {
+                                                                                              ...candidate.title,
+                                                                                              'zh-CN':
+                                                                                                  event.target.value
+                                                                                          }
+                                                                                      }
+                                                                                    : candidate
+                                                                            )
+                                                                        }))
+                                                                    }
+                                                                />
+                                                            </label>
+                                                            <label className='space-y-1.5 text-sm'>
+                                                                <span className='font-medium'>
+                                                                    {t('admin.showcases.field.titleEn')}
+                                                                </span>
+                                                                <Input
+                                                                    value={item.title['en-US']}
+                                                                    disabled={!canWrite}
+                                                                    onChange={(event) =>
+                                                                        updateStructuredDraft((draft) => ({
+                                                                            ...draft,
+                                                                            cases: draft.cases.map((candidate) =>
+                                                                                candidate.id === item.id
+                                                                                    ? {
+                                                                                          ...candidate,
+                                                                                          title: {
+                                                                                              ...candidate.title,
+                                                                                              'en-US':
+                                                                                                  event.target.value
+                                                                                          }
+                                                                                      }
+                                                                                    : candidate
+                                                                            )
+                                                                        }))
+                                                                    }
+                                                                />
+                                                            </label>
+                                                            <label className='space-y-1.5 text-sm sm:col-span-2'>
+                                                                <span className='font-medium'>
+                                                                    {t('admin.showcases.field.promptZh')}
+                                                                </span>
+                                                                <Textarea
+                                                                    value={item.recipe.prompt['zh-CN']}
+                                                                    disabled={!canWrite}
+                                                                    className='min-h-28'
+                                                                    onChange={(event) =>
+                                                                        updateStructuredDraft((draft) => ({
+                                                                            ...draft,
+                                                                            cases: draft.cases.map((candidate) =>
+                                                                                candidate.id === item.id
+                                                                                    ? {
+                                                                                          ...candidate,
+                                                                                          recipe: {
+                                                                                              ...candidate.recipe,
+                                                                                              prompt: {
+                                                                                                  ...candidate.recipe
+                                                                                                      .prompt,
+                                                                                                  'zh-CN':
+                                                                                                      event.target.value
+                                                                                              }
+                                                                                          }
+                                                                                      }
+                                                                                    : candidate
+                                                                            )
+                                                                        }))
+                                                                    }
+                                                                />
+                                                            </label>
+                                                            <label className='space-y-1.5 text-sm sm:col-span-2'>
+                                                                <span className='font-medium'>
+                                                                    {t('admin.showcases.field.promptEn')}
+                                                                </span>
+                                                                <Textarea
+                                                                    value={item.recipe.prompt['en-US']}
+                                                                    disabled={!canWrite}
+                                                                    className='min-h-28'
+                                                                    onChange={(event) =>
+                                                                        updateStructuredDraft((draft) => ({
+                                                                            ...draft,
+                                                                            cases: draft.cases.map((candidate) =>
+                                                                                candidate.id === item.id
+                                                                                    ? {
+                                                                                          ...candidate,
+                                                                                          recipe: {
+                                                                                              ...candidate.recipe,
+                                                                                              prompt: {
+                                                                                                  ...candidate.recipe
+                                                                                                      .prompt,
+                                                                                                  'en-US':
+                                                                                                      event.target.value
+                                                                                              }
+                                                                                          }
+                                                                                      }
+                                                                                    : candidate
+                                                                            )
+                                                                        }))
+                                                                    }
+                                                                />
+                                                            </label>
+                                                            <div className='text-muted-foreground text-xs sm:col-span-2'>
+                                                                {t('admin.showcases.cases.slotSummary', {
+                                                                    count: item.recipe.inputSlots.length
+                                                                })}{' '}
+                                                                ·{' '}
+                                                                {t('admin.showcases.cases.assetSummary', {
+                                                                    count:
+                                                                        item.inputAssetIds.length +
+                                                                        item.outputAssetIds.length
+                                                                })}
+                                                            </div>
+                                                            <div className='space-y-2 sm:col-span-2'>
+                                                                <p className='text-sm font-medium'>
+                                                                    {t('admin.showcases.cases.slotsTitle')}
+                                                                </p>
+                                                                {item.recipe.inputSlots.map((slot) => (
+                                                                    <div
+                                                                        key={slot.id}
+                                                                        className='border-border grid gap-2 rounded-lg border p-2 sm:grid-cols-2'>
+                                                                        <label className='space-y-1 text-xs'>
+                                                                            <span>
+                                                                                {t('admin.showcases.field.slotLabelZh')}
+                                                                            </span>
+                                                                            <Input
+                                                                                value={slot.label['zh-CN']}
+                                                                                disabled={!canWrite}
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) => ({
+                                                                                        ...draft,
+                                                                                        cases: draft.cases.map(
+                                                                                            (candidate) =>
+                                                                                                candidate.id === item.id
+                                                                                                    ? {
+                                                                                                          ...candidate,
+                                                                                                          recipe: {
+                                                                                                              ...candidate.recipe,
+                                                                                                              inputSlots:
+                                                                                                                  candidate.recipe.inputSlots.map(
+                                                                                                                      (
+                                                                                                                          candidateSlot
+                                                                                                                      ) =>
+                                                                                                                          candidateSlot.id ===
+                                                                                                                          slot.id
+                                                                                                                              ? {
+                                                                                                                                    ...candidateSlot,
+                                                                                                                                    label: {
+                                                                                                                                        ...candidateSlot.label,
+                                                                                                                                        'zh-CN':
+                                                                                                                                            event
+                                                                                                                                                .target
+                                                                                                                                                .value
+                                                                                                                                    }
+                                                                                                                                }
+                                                                                                                              : candidateSlot
+                                                                                                                  )
+                                                                                                          }
+                                                                                                      }
+                                                                                                    : candidate
+                                                                                        )
+                                                                                    }))
+                                                                                }
+                                                                            />
+                                                                        </label>
+                                                                        <label className='space-y-1 text-xs'>
+                                                                            <span>
+                                                                                {t('admin.showcases.field.slotLabelEn')}
+                                                                            </span>
+                                                                            <Input
+                                                                                value={slot.label['en-US']}
+                                                                                disabled={!canWrite}
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) => ({
+                                                                                        ...draft,
+                                                                                        cases: draft.cases.map(
+                                                                                            (candidate) =>
+                                                                                                candidate.id === item.id
+                                                                                                    ? {
+                                                                                                          ...candidate,
+                                                                                                          recipe: {
+                                                                                                              ...candidate.recipe,
+                                                                                                              inputSlots:
+                                                                                                                  candidate.recipe.inputSlots.map(
+                                                                                                                      (
+                                                                                                                          candidateSlot
+                                                                                                                      ) =>
+                                                                                                                          candidateSlot.id ===
+                                                                                                                          slot.id
+                                                                                                                              ? {
+                                                                                                                                    ...candidateSlot,
+                                                                                                                                    label: {
+                                                                                                                                        ...candidateSlot.label,
+                                                                                                                                        'en-US':
+                                                                                                                                            event
+                                                                                                                                                .target
+                                                                                                                                                .value
+                                                                                                                                    }
+                                                                                                                                }
+                                                                                                                              : candidateSlot
+                                                                                                                  )
+                                                                                                          }
+                                                                                                      }
+                                                                                                    : candidate
+                                                                                        )
+                                                                                    }))
+                                                                                }
+                                                                            />
+                                                                        </label>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <div className='border-border grid gap-3 rounded-lg border p-3 sm:col-span-2 sm:grid-cols-3'>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputSize')}
+                                                                    </span>
+                                                                    <Input
+                                                                        value={item.recipe.output?.size ?? ''}
+                                                                        disabled={!canWrite}
+                                                                        placeholder='auto / 1024x1024'
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) => ({
+                                                                                ...draft,
+                                                                                cases: draft.cases.map((candidate) =>
+                                                                                    candidate.id === item.id
+                                                                                        ? {
+                                                                                              ...candidate,
+                                                                                              recipe: {
+                                                                                                  ...candidate.recipe,
+                                                                                                  output: setShowcaseRecipeOutputSize(
+                                                                                                      candidate.recipe
+                                                                                                          .output,
+                                                                                                      event.target.value
+                                                                                                  )
+                                                                                              }
+                                                                                          }
+                                                                                        : candidate
+                                                                                )
+                                                                            }))
+                                                                        }
+                                                                    />
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputQuality')}
+                                                                    </span>
+                                                                    <select
+                                                                        value={item.recipe.output?.quality ?? ''}
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) => ({
+                                                                                ...draft,
+                                                                                cases: draft.cases.map((candidate) =>
+                                                                                    candidate.id === item.id
+                                                                                        ? {
+                                                                                              ...candidate,
+                                                                                              recipe: {
+                                                                                                  ...candidate.recipe,
+                                                                                                  output: setShowcaseRecipeOutputQuality(
+                                                                                                      candidate.recipe
+                                                                                                          .output,
+                                                                                                      event.target
+                                                                                                          .value as
+                                                                                                          | ''
+                                                                                                          | 'low'
+                                                                                                          | 'medium'
+                                                                                                          | 'high'
+                                                                                                          | 'auto'
+                                                                                                  )
+                                                                                              }
+                                                                                          }
+                                                                                        : candidate
+                                                                                )
+                                                                            }))
+                                                                        }
+                                                                        className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'>
+                                                                        <option value=''>
+                                                                            {t('showcase.recipe.auto')}
+                                                                        </option>
+                                                                        {(
+                                                                            ['low', 'medium', 'high', 'auto'] as const
+                                                                        ).map((value) => (
+                                                                            <option key={value} value={value}>
+                                                                                {t(`showcase.recipe.quality.${value}`)}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputCount')}
+                                                                    </span>
+                                                                    <Input
+                                                                        type='number'
+                                                                        min={1}
+                                                                        max={10}
+                                                                        value={item.recipe.output?.n ?? 1}
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) => ({
+                                                                                ...draft,
+                                                                                cases: draft.cases.map((candidate) =>
+                                                                                    candidate.id === item.id
+                                                                                        ? {
+                                                                                              ...candidate,
+                                                                                              recipe: {
+                                                                                                  ...candidate.recipe,
+                                                                                                  output: {
+                                                                                                      ...(candidate
+                                                                                                          .recipe
+                                                                                                          .output ??
+                                                                                                          {}),
+                                                                                                      n:
+                                                                                                          Number(
+                                                                                                              event
+                                                                                                                  .target
+                                                                                                                  .value
+                                                                                                          ) || 1
+                                                                                                  }
+                                                                                              }
+                                                                                          }
+                                                                                        : candidate
+                                                                                )
+                                                                            }))
+                                                                        }
+                                                                    />
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    </details>
+                                                ))}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className='border-destructive/40 bg-destructive/5 text-destructive rounded-xl border p-4 text-sm'>
+                                            {t('admin.showcases.editor.invalidJson')}
+                                        </div>
+                                    )}
+                                </TabsContent>
+                                <TabsContent value='advanced' className='mt-3 space-y-1.5'>
+                                    <div>
+                                        <p className='text-sm font-medium'>{t('admin.showcases.editor.jsonTitle')}</p>
+                                        <p className='text-muted-foreground text-xs'>
+                                            {t('admin.showcases.editor.jsonDescription')}
+                                        </p>
+                                    </div>
+                                    <Textarea
+                                        name='showcase-advanced-json'
+                                        value={draftJson}
+                                        onChange={(event) => setDraftJson(event.target.value)}
+                                        disabled={!canWrite}
+                                        spellCheck={false}
+                                        data-i18n-skip='true'
+                                        className='bg-panel-ghost min-h-[34rem] resize-y rounded-xl font-mono text-xs leading-5'
+                                    />
+                                    {jsonError ? <p className='text-destructive text-xs'>{jsonError}</p> : null}
+                                </TabsContent>
+                            </Tabs>
                             <div className='flex flex-wrap gap-2'>
                                 <Button onClick={() => void saveDraft()} disabled={!canWrite || Boolean(busyKey)}>
                                     {busyKey === 'save' ? <Loader2 className='animate-spin' /> : <Save />}

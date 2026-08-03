@@ -1,28 +1,28 @@
 # 专题案例与引导式创作能力实现与发布报告
 
-| 字段 | 内容 |
-| --- | --- |
-| 日期 | 2026-08-03（发布与 129 部署于 2026-08-04 结束） |
-| 状态 | 已完成 (Completed)：专题能力、需求与使用文档、`v2.15.5` Release、全平台 Action 产物和 129 生产部署均已闭环。 |
-| 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。 |
-| 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md) |
-| 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。 |
-| 提交状态 | 功能、发布、i18n 修复/Release tag 与报告收尾提交均已推送；`v2.15.5` 固定指向实际构建提交 `301dbc2`，`master` 包含后续报告收尾提交。工作区保留用户既有无关改动。 |
+| 字段     | 内容                                                                                                                                                                                                                  |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 日期     | 2026-08-03（2026-08-04 继续完善并准备 `v2.15.6`）                                                                                                                                                                     |
+| 状态     | 部分完成 (Partial)：核心专题发现、引导式创作、结构化后台与跨端目录已可用；真实 AI 案例媒体、媒体上传/EXIF、专题漏斗、5 名非专业用户测试和真机安装验收仍缺证据。`v2.15.6` 发布、Action 和 129 部署状态见下方持续更新。 |
+| 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                 |
+| 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)         |
+| 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                   |
+| 提交状态 | `v2.15.5` 已发布；本轮 `v2.15.6` 增强尚未提交。提交时将显式排除工作区内用户既有的任务服务、社区调研和 PSD 研究文件。                                                                                                  |
 
 ## 范围核对
 
-| 请求目标 | 实际结果 | 证据 | 状态 |
-| --- | --- | --- | --- |
-| 专业、全面地细化需求 | 完成产品定位、术语、前后台流程、数据、接口、安全、跨端、验收和阶段规划 | 需求文档 | 已完成 (Completed) |
-| 默认实用专题 | 内置 6 个双语专题、24 个案例，覆盖老照片修复、虚拟试衣、创意风格化等 | `src/lib/default-showcases.ts` | 已完成 (Completed) |
-| 首页和专题中心 | 工作台下方专题区、全局功能菜单、静态 `/topics` 页面壳、专题/案例详情和深链 | `src/components/showcase/*`、`src/app/topics/page.tsx` | 已完成 (Completed) |
-| 跟着案例复现 | 按角色选择图片、源图替换/追加、个性化要求、提示词 replace/append/keep、模型能力检查、模型设置入口和安全参数载入；不自动生成 | `showcase-guide-dialog.tsx`、工作台接入 | 已完成 (Completed) |
-| 来源归因 | 显示可返回/可单独清除的来源 Chip；普通任务、托管任务恢复和历史均可保留 `topicId/caseId/recipeVersion/catalogRevision` | `showcase-attribution-chip.tsx`、`useTaskManager.ts`、`managed-task-records.ts`、`image-history.ts` | 已完成 (Completed) |
-| 公开目录与跨端回退 | Web 同源 API；Tauri 可信远端；远端 → endpoint 缓存 → 内置目录；ETag/304 | `showcase-client.ts`、`desktop-config.ts`、公开 API | 已完成 (Completed) |
-| 后台管理 | `/admin/showcases` 支持列表筛选、整目录草稿 JSON 编辑、预览、发布、下线、归档、版本回滚；viewer 只读 | 后台 UI/API、SQLite schema | 已完成 (Completed)：结构化表单与服务端媒体上传在需求中已列为 P0 后续增强/运维选项 |
-| 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换 | `src/lib/server/showcase/*` | 已完成 (Completed) |
-| i18n、主题与响应式 | 新增固定文案全部进入中英文资源；前台和后台均验证浅色/深色、桌面/移动，无横向溢出 | `messages.ts`、Playwright 验证 | 已完成 (Completed) |
-| 发布新版本和构建产物 | `v2.15.5` 已发布；Action 的 Web、macOS、Windows、Linux、Android 和 Release jobs 全部成功；129 已切换至新 release | 本报告“发布与部署” | 已完成 (Completed) |
+| 请求目标             | 实际结果                                                                                                                                                                   | 证据                                                                                                | 状态                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 专业、全面地细化需求 | 完成产品定位、术语、前后台流程、数据、接口、安全、跨端、验收和阶段规划                                                                                                     | 需求文档                                                                                            | 已完成 (Completed)                                                                           |
+| 默认实用专题         | 内置 6 个双语专题、24 个案例，覆盖老照片修复、虚拟试衣、创意风格化等；媒体为明确标识的 CSS 演示占位                                                                        | `src/lib/default-showcases.ts`、需求第 24 章                                                        | 部分完成 (Partial)：尚未补齐真实 AI 输入/输出案例与内部生成审计                              |
+| 首页和专题中心       | 工作台下方专题区、全局功能菜单、静态 `/topics` 页面壳、专题/案例详情和深链                                                                                                 | `src/components/showcase/*`、`src/app/topics/page.tsx`                                              | 已完成 (Completed)                                                                           |
+| 跟着案例复现         | 按角色支持本地文件、粘贴、系统剪贴板、素材库和历史图片；源图替换/追加、提示词 replace/append/keep、可编辑/复制提示词、模型能力检查、场景尺寸解析和安全参数载入；不自动生成 | `showcase-guide-dialog.tsx`、`workbench-page.tsx`                                                   | 已完成 (Completed)                                                                           |
+| 来源归因             | 显示可返回/可单独清除的来源 Chip；普通任务、托管任务恢复和历史均可保留 `topicId/caseId/recipeVersion/catalogRevision`                                                      | `showcase-attribution-chip.tsx`、`useTaskManager.ts`、`managed-task-records.ts`、`image-history.ts` | 已完成 (Completed)                                                                           |
+| 公开目录与跨端回退   | Web 同源 API；Tauri 可信远端；远端 → endpoint 缓存 → 内置目录；ETag/304                                                                                                    | `showcase-client.ts`、`desktop-config.ts`、公开 API                                                 | 已完成 (Completed)                                                                           |
+| 后台管理             | `/admin/showcases` 支持列表筛选、结构化专题/案例基础字段编辑、复制、预览、发布、下线、归档、版本回滚，并保留高级 JSON；viewer 只读                                         | 后台 UI/API、SQLite schema                                                                          | 部分完成 (Partial)：完整案例媒体/能力字段仍需高级 JSON，服务端媒体上传与独立媒体清理尚未实现 |
+| 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换                                                                                                      | `src/lib/server/showcase/*`                                                                         | 已完成 (Completed)                                                                           |
+| i18n、主题与响应式   | 新增固定文案全部进入中英文资源；前台已有浅色/深色、桌面/移动证据，无横向溢出；后台本轮未使用真实管理员会话重测全部组合                                                     | `messages.ts`、Playwright 验证                                                                      | 部分完成 (Partial)                                                                           |
+| 发布新版本和构建产物 | 目标为 `v2.15.6`，将推送 tag 触发 Web、桌面与 Android Release workflow，并部署 129                                                                                         | 本报告“发布与部署”                                                                                  | 进行中，发布完成后更新                                                                       |
 
 ## 实际完成范围
 
@@ -33,81 +33,91 @@
 - 工作台引导只载入图片、提示词和允许参数，不修改 API Key、Base URL、代理、同步或分享配置。
 - 当前模型不兼容时显示用户可理解原因，并只优先列出当前已配置凭证的兼容模型。
 - 当前工作台已有源图时可明确选择替换或追加；模型不兼容时可直接打开现有模型设置。
+- 个性化要求只会在提示词仍等于系统生成值时同步；用户手动改写后不会被后续输入覆盖。
+- 后台结构化输出编辑会清理互斥尺寸模式，清空尺寸/质量不会残留旧字段。
 - 托管任务客户端记录与恢复路径会归一化并保留非敏感专题归因，旧记录或非法字段仍安全降级。
 - 后台所有破坏性操作使用项目 Dialog，不使用 `window.alert`、`prompt` 或 `confirm`。
 - 生产依赖安全门将 `better-auth`、Next.js、PostCSS 和 Sharp 更新到已修复的兼容 patch 版本，`npm audit --omit=dev` 回到 0 vulnerabilities。
+- Rust 锁文件将 `quinn-proto` 从 `0.11.14` 提升到兼容修复版本 `0.11.15`，消除 `RUSTSEC-2026-0185`。
 
 ## 主要文件与模块
 
-| 领域 | 文件/模块 |
-| --- | --- |
-| 需求与报告 | `docs/requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md`、本报告 |
-| 领域与默认内容 | `src/lib/showcase.ts`、`src/lib/showcase-recipe.ts`、`src/lib/default-showcases.ts` |
-| 客户端目录 | `src/lib/showcase-client.ts`、`src/lib/desktop-config.ts` |
-| 前台与引导 | `src/app/topics/page.tsx`、`src/components/showcase/*` |
-| 工作台 | `src/features/workbench/page/workbench-page.tsx`、`workbench-shell.tsx`、`editing-form.tsx` |
-| 后台 | `src/app/admin/(shell)/showcases/page.tsx`、`src/components/admin/showcase-admin-client.tsx` |
-| 服务端 | `src/app/api/showcases/*`、`src/app/api/admin/showcases/*`、`src/lib/server/showcase/*`、`src/lib/server/schema.ts`、`src/lib/server/db.ts` |
-| 归因与历史 | `src/hooks/useTaskManager.ts`、`src/lib/taskExecutor.ts`、`src/lib/image-history.ts`、`src/types/history.ts` |
+| 领域           | 文件/模块                                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 需求与报告     | `docs/requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md`、本报告                                                             |
+| 领域与默认内容 | `src/lib/showcase.ts`、`src/lib/showcase-recipe.ts`、`src/lib/default-showcases.ts`                                                         |
+| 客户端目录     | `src/lib/showcase-client.ts`、`src/lib/desktop-config.ts`                                                                                   |
+| 前台与引导     | `src/app/topics/page.tsx`、`src/components/showcase/*`                                                                                      |
+| 工作台         | `src/features/workbench/page/workbench-page.tsx`、`workbench-shell.tsx`、`editing-form.tsx`                                                 |
+| 后台           | `src/app/admin/(shell)/showcases/page.tsx`、`src/components/admin/showcase-admin-client.tsx`                                                |
+| 服务端         | `src/app/api/showcases/*`、`src/app/api/admin/showcases/*`、`src/lib/server/showcase/*`、`src/lib/server/schema.ts`、`src/lib/server/db.ts` |
+| 归因与历史     | `src/hooks/useTaskManager.ts`、`src/lib/taskExecutor.ts`、`src/lib/image-history.ts`、`src/types/history.ts`                                |
 
 ## 问题与解决
 
-| 问题 | 解决办法 | 剩余风险 |
-| --- | --- | --- |
-| Promo 和专题都有“展示内容”特征 | Promo 继续负责投放入口，showcase 独立负责专题、案例和执行配方 | 后续可增加 Promo 引用专题的结构化选择器 |
-| 桌面静态导出不能依赖动态 SSR slug | 使用静态 `/topics` 壳和 query 深链，目录从可信远端读取并带缓存/内置回退 | Web SEO 动态落地页仍是后续增强 |
-| 配方可能注入危险配置 | 客户端和服务端复用同一严格 schema，只允许工作台安全字段 | 新字段必须先升级 schema 和兼容策略 |
-| 当前工作台已有 prompt/图片 | prompt 提供替换、追加、保留选择；源图提供替换、追加、取消后返回调整 | 追加后仍受当前模型参考图数量和文件限制校验 |
-| 后台结构化表单工作量较大 | P0 交付经过同一 schema 校验的完整 JSON 编辑器、前台组件预览和版本操作 | 普通运营人员仍需要理解目录 JSON，后续应结构化 |
-| 多协作者外部模型通道返回 503 | 保留已完成协作者结果，其余工作由主代理继续实现和验证 | 不影响代码运行，但少了一轮独立 UI/需求审阅 |
-| 首次 Release Action 因后台预览提示残留硬编码中文失败 | 将文案迁移到中英文 i18n 资源，提交 `301dbc2`，重建 `v2.15.5` tag 并重新触发正式 Release workflow | 后续继续依靠 CI 的可见文案检查阻止同类回归 |
-| 161 的 Debian 10 构建容器访问归档源和 Node headers 出现间歇性网络失败 | 归档源恢复后重试；最终在 detached 部署 worktree 中让 `node-gyp` 使用 Node 二进制缓存自带的 `include/node`，不再二次访问 `nodejs.org` | 此构建辅助修正未进入本次已发布 tag；建议在后续版本正式合入并为 apt 下载增加重试 |
+| 问题                                                                              | 解决办法                                                                                                                             | 剩余风险                                                                                                                                                    |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Promo 和专题都有“展示内容”特征                                                    | Promo 继续负责投放入口，showcase 独立负责专题、案例和执行配方                                                                        | 后续可增加 Promo 引用专题的结构化选择器                                                                                                                     |
+| 桌面静态导出不能依赖动态 SSR slug                                                 | 使用静态 `/topics` 壳和 query 深链，目录从可信远端读取并带缓存/内置回退                                                              | Web SEO 动态落地页仍是后续增强                                                                                                                              |
+| 配方可能注入危险配置                                                              | 客户端和服务端复用同一严格 schema，只允许工作台安全字段                                                                              | 新字段必须先升级 schema 和兼容策略                                                                                                                          |
+| 当前工作台已有 prompt/图片                                                        | prompt 提供替换、追加、保留选择；源图提供替换、追加、取消后返回调整                                                                  | 追加后仍受当前模型参考图数量和文件限制校验                                                                                                                  |
+| 后台字段很多且存在互斥尺寸模式                                                    | 增加结构化专题/案例基础表单并保留高级 JSON；抽取输出字段 helper，在切换/清空尺寸或质量时删除旧字段                                   | 媒体、完整能力要求、FAQ 和相关专题仍需高级 JSON                                                                                                             |
+| 个性化要求 effect 会覆盖用户手改 prompt                                           | 改为比较“上一次系统生成 prompt”，只有用户尚未改写时才同步下一次个性化要求                                                            | 已增加纯函数与浏览器回归验证                                                                                                                                |
+| 多协作者外部模型通道返回 503                                                      | 保留已完成协作者结果，其余工作由主代理继续实现和验证                                                                                 | 不影响代码运行，但少了一轮独立 UI/需求审阅                                                                                                                  |
+| RustSec 发现 `quick-xml 0.39.2` 两项高危告警和 `quinn-proto 0.11.14` 一项高危告警 | 在现有 `0.11.x` 约束内把 `quinn-proto` 升至 `0.11.15`；核对 `quick-xml` 依赖树与修复版本要求                                         | `quick-xml >=0.41.0` 需要同时跨越 Tauri 间接依赖约束，且 `plist 1.10.0` 的 MSRV 为 Rust 1.88，高于项目声明的 1.77.2；本补丁不做未经全平台验证的强制跨代覆盖 |
+| 首次 Release Action 因后台预览提示残留硬编码中文失败                              | 将文案迁移到中英文 i18n 资源，提交 `301dbc2`，重建 `v2.15.5` tag 并重新触发正式 Release workflow                                     | 后续继续依靠 CI 的可见文案检查阻止同类回归                                                                                                                  |
+| 161 的 Debian 10 构建容器访问归档源和 Node headers 出现间歇性网络失败             | 归档源恢复后重试；最终在 detached 部署 worktree 中让 `node-gyp` 使用 Node 二进制缓存自带的 `include/node`，不再二次访问 `nodejs.org` | 此构建辅助修正未进入本次已发布 tag；建议在后续版本正式合入并为 apt 下载增加重试                                                                             |
 
 ## 验证
 
-| 检查项 | 命令或场景 | 结果 |
-| --- | --- | --- |
-| 定向专题测试 | `rtk npm run test -- --run src/lib/showcase.test.ts src/lib/showcase-recipe.test.ts src/lib/default-showcases.test.ts src/lib/showcase-client.test.ts src/lib/image-history.test.ts src/lib/server/showcase/showcase.test.ts src/app/api/showcases/route.test.ts` | 7 个文件、59 项通过 |
-| i18n 同步 | `rtk npm run test -- --run src/lib/i18n/messages.test.ts` | 通过 |
-| TypeScript | `rtk npm run typecheck` | 通过 |
-| ESLint | `rtk npm run lint -- --no-cache` | 通过，无 warning |
-| Web build | `rtk npm run build` | 通过；包含 `/admin/showcases`、公开/后台 API 和静态 `/topics` |
-| Desktop build | `rtk npm run build:desktop` | 前台协作者执行通过，`/topics` 静态导出 |
-| 格式与空白 | Prettier、`rtk git diff --check` | 通过 |
-| 前台浏览器 | 1440 桌面、390×844 移动端；浅色/深色；无横向溢出；案例工作台 href 正确 | 通过；浏览器和 dev server 已关闭 |
-| 后台浏览器 | 独立临时 SQLite + 测试 owner；1440×900 浅色、1280×800 深色、390×844 浅色/深色；创建、预览、发布、公开读取、下线、回滚 | 通过；移动端 `scrollWidth === clientWidth === 390`，控制台 0 error / 0 warning；浏览器、dev server 和临时数据已清理 |
-| 安全依赖审计 | `rtk npm run audit:prod` | 初次发现 4 个 high；升级兼容 patch 后复验为 0 vulnerabilities |
-| 发布前安全与环境 | `rtk npm run secret-scan`、`rtk npm run release:env-check` | 通过；私有 `.env.local` 未被 Git 跟踪，跟踪文件未发现疑似密钥 |
-| 全量单元测试 | `rtk npm run test` | 115 个测试文件、1068 项测试全部通过 |
-| Rust 测试 | `rtk npm run rust:test` | 83 项测试通过 |
-| Rust Clippy | `rtk npm run rust:clippy` | 通过，`-D warnings` 下无警告 |
-| Rust 依赖审计 | `rtk npm run rust:audit`、`rtk cargo audit --file src-tauri/Cargo.lock --json` | 未通过：锁文件中的 Tauri/跨平台间接依赖命中 `RUSTSEC-2026-0194`、`RUSTSEC-2026-0195`（`quick-xml 0.39.2`）和 `RUSTSEC-2026-0185`（`quinn-proto 0.11.14`）；本次未通过强制跨代覆盖改写 Tauri 依赖图，作为发布已知风险跟踪 |
-| 版本一致性 | Node 版本检查脚本、`rtk cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1` | `package.json`、package-lock 根版本、Tauri、Cargo 均为 `2.15.5`，锁文件可解析 |
-| Tauri 真机/Android | 真实桌面运行时和 Android 真机 | 未执行；由 release Action 构建产物，并在后续版本验证安装 |
-| GitHub Actions | `gh run view 30842915666` | workflow 状态 `completed/success`；metadata/Web/Desktop、macOS、Windows、Linux、Android、Publish Release jobs 全部成功 |
-| Release 资产 | `gh release view v2.15.5` | 正式 Release（非 draft、非 prerelease）；DMG、updater tar/signature、EXE、MSI、deb、rpm、AppImage、`latest.json` 与 universal release APK 均存在 |
-| 129 生产部署 | `rtk ./scripts/deploy-129.sh --backend 161` | 161 Docker 生成 47 MB、glibc 2.28 兼容运行包；129 `current` 指向 `releases/20260804033254-v2.15.5`，systemd `active` |
-| 129 线上路由 | `curl` 检查 `/`、`/topics`、`/admin`、`/admin/showcases`、`/admin/promo` | `/`、`/topics` 为 200；后台入口为 307 并跳转 `/admin/login`，符合未登录预期 |
-| 129 专题 API 与缓存 | `curl -I /api/showcases`、`curl /api/showcases/old-photo-restoration` | API 为 200，返回 ETag 和 `public, max-age=60, stale-while-revalidate=300`；专题详情可读取；根页为 `no-cache, no-store, must-revalidate` |
-| 129 native 运行时 | 在当前 release 的 bundled Node 中创建 `better-sqlite3 :memory:` 并执行 `select 1` | 通过；部署元数据为 Node `20.20.2`、`linux-x64-glibc`、`native_mode=linux-glibc228`、builder `161-docker` |
-| Outline 文档同步 | 先搜索同名文档，再按分类创建并回读验证 | 需求文档与本报告已同步至「AI报告」；129/161 操作日志已同步至「操作记录」，均为已发布状态 |
+| 检查项              | 命令或场景                                                                                                                                                                                                                                                        | 结果                                                                                                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 定向专题测试        | `rtk npm run test -- --run src/lib/showcase.test.ts src/lib/showcase-recipe.test.ts src/lib/default-showcases.test.ts src/lib/showcase-client.test.ts src/lib/image-history.test.ts src/lib/server/showcase/showcase.test.ts src/app/api/showcases/route.test.ts` | 7 个文件、59 项通过                                                                                                                                                                                                                  |
+| i18n 同步           | `rtk npm run test -- --run src/lib/i18n/messages.test.ts`                                                                                                                                                                                                         | 通过                                                                                                                                                                                                                                 |
+| TypeScript          | `rtk npm run typecheck`                                                                                                                                                                                                                                           | 通过                                                                                                                                                                                                                                 |
+| ESLint              | `rtk npm run lint -- --no-cache`                                                                                                                                                                                                                                  | 通过，无 warning                                                                                                                                                                                                                     |
+| Web build           | `rtk npm run build`                                                                                                                                                                                                                                               | 通过；包含 `/admin/showcases`、公开/后台 API 和静态 `/topics`                                                                                                                                                                        |
+| Desktop build       | `rtk npm run build:desktop`                                                                                                                                                                                                                                       | 前台协作者执行通过，`/topics` 静态导出                                                                                                                                                                                               |
+| 格式与空白          | Prettier、`rtk git diff --check`                                                                                                                                                                                                                                  | 通过                                                                                                                                                                                                                                 |
+| 前台浏览器          | 1440 桌面、390×844 移动端；浅色/深色；无横向溢出；案例工作台 href 正确                                                                                                                                                                                            | 通过；浏览器和 dev server 已关闭                                                                                                                                                                                                     |
+| 后台浏览器          | 独立临时 SQLite + 测试 owner；1440×900 浅色、1280×800 深色、390×844 浅色/深色；创建、预览、发布、公开读取、下线、回滚                                                                                                                                             | 通过；移动端 `scrollWidth === clientWidth === 390`，控制台 0 error / 0 warning；浏览器、dev server 和临时数据已清理                                                                                                                  |
+| 本轮前台增量验证    | 1280×800 深色专题目录/案例、390×844 深色双图试衣全屏引导；手改 prompt 保护、素材库子 Dialog、双图角色顺序、载入后无生成请求                                                                                                                                       | 通过；`scrollWidth === clientWidth`，console 0 error / 0 warning；浏览器与 dev server 已关闭                                                                                                                                         |
+| 本轮后台增量验证    | 未登录访问 `/admin/showcases`                                                                                                                                                                                                                                     | 正确跳转 `/admin/login`；结构化编辑由 helper 单测、TypeScript、ESLint 和构建覆盖，真实管理员会话 UI 需在发布后生产验收补充                                                                                                           |
+| 安全依赖审计        | `rtk npm run audit:prod`                                                                                                                                                                                                                                          | 初次发现 4 个 high；升级兼容 patch 后复验为 0 vulnerabilities                                                                                                                                                                        |
+| 发布前安全与环境    | `rtk npm run secret-scan`、`rtk npm run release:env-check`                                                                                                                                                                                                        | 通过；私有 `.env.local` 未被 Git 跟踪，跟踪文件未发现疑似密钥                                                                                                                                                                        |
+| 全量单元测试        | `rtk npm run test`                                                                                                                                                                                                                                                | 116 个测试文件、1074 项测试全部通过                                                                                                                                                                                                  |
+| Rust 测试           | `rtk npm run rust:test`                                                                                                                                                                                                                                           | 83 项测试通过                                                                                                                                                                                                                        |
+| Rust Clippy         | `rtk npm run rust:clippy`                                                                                                                                                                                                                                         | 通过，`-D warnings` 下无警告                                                                                                                                                                                                         |
+| Rust 依赖审计       | `rtk npm run rust:audit`、依赖树与修复版本约束核对                                                                                                                                                                                                                | 部分通过：`quinn-proto` 已从 `0.11.14` 升至 `0.11.15` 并消除 `RUSTSEC-2026-0185`；仍命中 `RUSTSEC-2026-0194`、`RUSTSEC-2026-0195`（`quick-xml 0.39.2`），兼容修复受 Tauri 间接依赖和项目 Rust 1.77.2 MSRV 约束，作为已知发布风险跟踪 |
+| 版本一致性          | Node 版本检查脚本、`rtk cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1`                                                                                                                                                          | `package.json`、package-lock 根版本、Tauri、Cargo 均为 `2.15.6`，锁文件可解析                                                                                                                                                        |
+| 可用性测试          | 5 名非专业用户，30/60 秒目标                                                                                                                                                                                                                                      | 未执行，无可虚报的受试者证据                                                                                                                                                                                                         |
+| Tauri 真机/Android  | 真实桌面运行时和 Android 真机                                                                                                                                                                                                                                     | 未执行；CI 产物不能替代安装级验证                                                                                                                                                                                                    |
+| GitHub Actions      | `gh run view 30842915666`                                                                                                                                                                                                                                         | workflow 状态 `completed/success`；metadata/Web/Desktop、macOS、Windows、Linux、Android、Publish Release jobs 全部成功                                                                                                               |
+| Release 资产        | `gh release view v2.15.5`                                                                                                                                                                                                                                         | 正式 Release（非 draft、非 prerelease）；DMG、updater tar/signature、EXE、MSI、deb、rpm、AppImage、`latest.json` 与 universal release APK 均存在                                                                                     |
+| 129 生产部署        | `rtk ./scripts/deploy-129.sh --backend 161`                                                                                                                                                                                                                       | 161 Docker 生成 47 MB、glibc 2.28 兼容运行包；129 `current` 指向 `releases/20260804033254-v2.15.5`，systemd `active`                                                                                                                 |
+| 129 线上路由        | `curl` 检查 `/`、`/topics`、`/admin`、`/admin/showcases`、`/admin/promo`                                                                                                                                                                                          | `/`、`/topics` 为 200；后台入口为 307 并跳转 `/admin/login`，符合未登录预期                                                                                                                                                          |
+| 129 专题 API 与缓存 | `curl -I /api/showcases`、`curl /api/showcases/old-photo-restoration`                                                                                                                                                                                             | API 为 200，返回 ETag 和 `public, max-age=60, stale-while-revalidate=300`；专题详情可读取；根页为 `no-cache, no-store, must-revalidate`                                                                                              |
+| 129 native 运行时   | 在当前 release 的 bundled Node 中创建 `better-sqlite3 :memory:` 并执行 `select 1`                                                                                                                                                                                 | 通过；部署元数据为 Node `20.20.2`、`linux-x64-glibc`、`native_mode=linux-glibc228`、builder `161-docker`                                                                                                                             |
+| Outline 文档同步    | 先搜索同名文档，再按分类创建并回读验证                                                                                                                                                                                                                            | 需求文档与本报告已同步至「AI报告」；129/161 操作日志已同步至「操作记录」，均为已发布状态                                                                                                                                             |
 
 ## 发布与部署
 
-| 项目 | 状态 |
-| --- | --- |
-| 目标版本 | `2.15.5`（当前基线 `2.15.4`） |
-| 版本文件与 Changelog | 已更新 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`CHANGELOG.md` |
-| commit/tag/push | `v2.15.5` 指向已构建提交 `301dbc2c3117c81e93467975f566da67e6329dda`；发布后报告提交 `2914205` 已推送到 `master` |
-| GitHub Actions | [Release workflow 30842915666](https://github.com/xxxily/gpt-image-playground/actions/runs/30842915666) 已完成且全部 jobs 成功 |
-| Release 产物 | [GitHub Release v2.15.5](https://github.com/xxxily/gpt-image-playground/releases/tag/v2.15.5) 已正式发布，桌面端、更新器元数据/签名与 Android APK 齐全 |
-| 129 部署 | 已通过 161 Docker 构建 glibc 2.28 运行包并部署；当前 release 为 `/root/work/gpt-image-playground/releases/20260804033254-v2.15.5`，服务 `active`，线上检查通过 |
-| 142 部署 | 明确跳过；按 `RELEASE_PROCESS.md` 当前暂停 |
-| Outline | 需求：`/doc/gpt-image-playground-U4dlPsf2LV`；实现报告：`/doc/v2155-RIyic3iPPT`；129：`/doc/gpt-image-playground-v2155-129-8zh4BYdkIW`；161：`/doc/gpt-image-playground-v2155-161-DeL7h3eyiU` |
+| 项目                 | 状态                                                                                                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 目标版本             | `2.15.6`（当前基线 `2.15.5`）                                                                                                                                                                 |
+| 版本文件与 Changelog | 已更新为 `2.15.6` 并通过版本一致性检查；`CHANGELOG.md` 已加入 `v2.15.6` 小节                                                                                                                  |
+| commit/tag/push      | 待创建功能提交、发布提交与 `v2.15.6` tag                                                                                                                                                      |
+| GitHub Actions       | 待 tag 推送后记录正式 workflow run 与各 job 状态                                                                                                                                              |
+| Release 产物         | 待核验 DMG、updater 签名/元数据、Windows、Linux 和 Android APK                                                                                                                                |
+| 129 部署             | 待 Action 触发后按独立 worktree / 161 builder 规范部署并验证                                                                                                                                  |
+| 142 部署             | 明确跳过；按 `RELEASE_PROCESS.md` 当前暂停                                                                                                                                                    |
+| Outline              | 需求：`/doc/gpt-image-playground-U4dlPsf2LV`；实现报告：`/doc/v2155-RIyic3iPPT`；129：`/doc/gpt-image-playground-v2155-129-8zh4BYdkIW`；161：`/doc/gpt-image-playground-v2155-161-DeL7h3eyiU` |
 
 ## 后续建议
 
-- 后续将后台 JSON 编辑器升级为结构化专题/案例/媒体表单，并增加媒体上传、版权归因、指标和真实案例回归审核。
-- 后续依赖升级中处理 `quick-xml 0.39.2` 和 `quinn-proto 0.11.14` 的已知 RustSec 风险，不建议在未验证 Tauri 全平台兼容性的情况下强制跨代覆盖锁文件。
+- 补齐 24 个经过真实流程生成、授权和人工核验的输入/输出案例，记录模型、配方版本、日期与候选次数。
+- 继续扩充结构化后台的媒体、能力要求、FAQ、相关专题和完整输出字段，并增加媒体上传、EXIF 清理与引用保护。
+- 实现专题发现到生成的隐私安全漏斗，并完成至少 5 名非专业用户的定性可用性测试。
+- 后续随 Tauri / `plist` / Wayland 依赖链兼容升级处理 `quick-xml 0.39.2` 的两项 RustSec 风险；升级前需先确认 Rust MSRV 和全平台构建兼容性。
 - 将本次 detached worktree 中验证有效的本地 Node headers 构建方式正式合入 `scripts/build-129-runtime-docker.sh`，并为 Debian archive 的 `apt-get update` 增加有限重试，降低 161 构建链路对瞬时网络的敏感度。
 - 对 macOS、Windows、Linux 和 Android Release 包补做安装级冒烟；本次仅验证了 CI 构建和资产完整性，未在真机安装。

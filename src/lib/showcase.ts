@@ -40,6 +40,11 @@ export type ShowcaseAsset = ShowcasePlaceholderAsset | ShowcaseRemoteAsset;
 
 export type ShowcaseCaseDifficulty = 'beginner' | 'intermediate' | 'advanced';
 
+export type ShowcaseFaqItem = {
+    question: ShowcaseLocalizedText;
+    answer: ShowcaseLocalizedText;
+};
+
 export type ShowcaseCase = {
     id: string;
     topicId: string;
@@ -64,6 +69,12 @@ export type ShowcaseTopic = {
     summary: ShowcaseLocalizedText;
     preparation: ShowcaseLocalizedText;
     limitations: ShowcaseLocalizedText;
+    capabilities?: ShowcaseLocalizedText;
+    suitableFor?: ShowcaseLocalizedText;
+    unsuitableFor?: ShowcaseLocalizedText;
+    recommendedInputQuality?: ShowcaseLocalizedText;
+    faq?: ShowcaseFaqItem[];
+    relatedTopicIds?: string[];
     tags: ShowcaseLocalizedText[];
     featured: boolean;
     sortOrder: number;
@@ -79,6 +90,15 @@ export type ShowcaseCatalog = {
     topics: ShowcaseTopic[];
     cases: ShowcaseCase[];
     assets: ShowcaseAsset[];
+};
+
+export type NormalizeShowcaseCatalogOptions = {
+    /**
+     * Drafts and single-topic publication snapshots may refer to topics that
+     * are published separately. The IDs are still normalized and self-links
+     * remain invalid; the complete public catalog can enforce all references.
+     */
+    allowDanglingRelatedTopicIds?: boolean;
 };
 
 /** Non-sensitive provenance attached to a workbench task or history entry. */
@@ -114,6 +134,7 @@ export function normalizeShowcaseAttribution(value: unknown): ShowcaseAttributio
 
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const LOCALIZED_TEXT_KEYS = new Set(['zh-CN', 'en-US']);
+const FAQ_KEYS = new Set(['question', 'answer']);
 const PLACEHOLDER_STYLE_KEYS = new Set(['label', 'backgroundColor', 'foregroundColor']);
 const ASSET_KEYS = new Set(['id', 'kind', 'alt', 'placeholder', 'url', 'mimeType', 'width', 'height']);
 const CASE_KEYS = new Set([
@@ -139,6 +160,12 @@ const TOPIC_KEYS = new Set([
     'summary',
     'preparation',
     'limitations',
+    'capabilities',
+    'suitableFor',
+    'unsuitableFor',
+    'recommendedInputQuality',
+    'faq',
+    'relatedTopicIds',
     'tags',
     'featured',
     'sortOrder',
@@ -408,6 +435,16 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
     const summary = normalizeLocalizedText(record.summary, 1_000);
     const preparation = normalizeLocalizedText(record.preparation, 2_000);
     const limitations = normalizeLocalizedText(record.limitations, 2_000);
+    const capabilities =
+        record.capabilities === undefined ? undefined : normalizeLocalizedText(record.capabilities, 2_000);
+    const suitableFor =
+        record.suitableFor === undefined ? undefined : normalizeLocalizedText(record.suitableFor, 2_000);
+    const unsuitableFor =
+        record.unsuitableFor === undefined ? undefined : normalizeLocalizedText(record.unsuitableFor, 2_000);
+    const recommendedInputQuality =
+        record.recommendedInputQuality === undefined
+            ? undefined
+            : normalizeLocalizedText(record.recommendedInputQuality, 2_000);
     const sortOrder = normalizeInteger(record.sortOrder, 0, 1_000_000);
     const coverAssetId = normalizeIdentifier(record.coverAssetId);
     const caseIds = normalizeIdArray(record.caseIds, 1, 128);
@@ -419,6 +456,10 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
         !summary ||
         !preparation ||
         !limitations ||
+        (record.capabilities !== undefined && !capabilities) ||
+        (record.suitableFor !== undefined && !suitableFor) ||
+        (record.unsuitableFor !== undefined && !unsuitableFor) ||
+        (record.recommendedInputQuality !== undefined && !recommendedInputQuality) ||
         sortOrder === null ||
         !coverAssetId ||
         !caseIds ||
@@ -440,6 +481,25 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
         tags.push(tag);
     }
 
+    let faq: ShowcaseFaqItem[] | undefined;
+    if (record.faq !== undefined) {
+        const rawFaq = asStrictArray(record.faq);
+        if (!rawFaq || rawFaq.length > 20) return null;
+        faq = [];
+        for (const rawItem of rawFaq) {
+            const faqRecord = asStrictRecord(rawItem, FAQ_KEYS);
+            if (!faqRecord) return null;
+            const question = normalizeLocalizedText(faqRecord.question, 500);
+            const answer = normalizeLocalizedText(faqRecord.answer, 2_000);
+            if (!question || !answer) return null;
+            faq.push({ question, answer });
+        }
+    }
+
+    const relatedTopicIds =
+        record.relatedTopicIds === undefined ? undefined : normalizeIdArray(record.relatedTopicIds, 0, 16);
+    if (record.relatedTopicIds !== undefined && !relatedTopicIds) return null;
+
     return {
         id,
         slug,
@@ -447,6 +507,12 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
         summary,
         preparation,
         limitations,
+        ...(capabilities ? { capabilities } : {}),
+        ...(suitableFor ? { suitableFor } : {}),
+        ...(unsuitableFor ? { unsuitableFor } : {}),
+        ...(recommendedInputQuality ? { recommendedInputQuality } : {}),
+        ...(faq ? { faq } : {}),
+        ...(relatedTopicIds ? { relatedTopicIds } : {}),
         tags,
         featured: record.featured,
         sortOrder,
@@ -482,7 +548,10 @@ function hasDuplicate<T>(items: T[], getValue: (item: T) => string): boolean {
     return false;
 }
 
-export function normalizeShowcaseCatalog(value: unknown): ShowcaseCatalog | null {
+export function normalizeShowcaseCatalog(
+    value: unknown,
+    options: NormalizeShowcaseCatalogOptions = {}
+): ShowcaseCatalog | null {
     const record = asStrictRecord(value, CATALOG_KEYS);
     if (!record) return null;
 
@@ -523,6 +592,13 @@ export function normalizeShowcaseCatalog(value: unknown): ShowcaseCatalog | null
 
     for (const topic of topics) {
         if (!assetIds.has(topic.coverAssetId)) return null;
+        if (
+            topic.relatedTopicIds?.some(
+                (id) => id === topic.id || (!options.allowDanglingRelatedTopicIds && !topicById.has(id))
+            )
+        ) {
+            return null;
+        }
         const caseSlugs = new Set<string>();
         for (const caseId of topic.caseIds) {
             const showcaseCase = caseById.get(caseId);

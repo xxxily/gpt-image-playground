@@ -521,6 +521,18 @@ export function buildShowcaseRecipePrompt(
     return `${prompt.trim()}\n\n${instruction}`;
 }
 
+export function syncShowcasePromptWithUserInstruction(
+    recipe: ShowcaseRecipeV1,
+    language: AppLanguage,
+    previousInstruction: string,
+    nextInstruction: string,
+    currentPrompt: string
+): string {
+    const previousGeneratedPrompt = buildShowcaseRecipePrompt(recipe, language, previousInstruction);
+    if (currentPrompt !== previousGeneratedPrompt) return currentPrompt;
+    return buildShowcaseRecipePrompt(recipe, language, nextInstruction);
+}
+
 export function evaluateShowcaseModelCompatibility(
     recipe: ShowcaseRecipeV1,
     model: ShowcaseModelCapabilityInput

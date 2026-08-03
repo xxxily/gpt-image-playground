@@ -8,7 +8,7 @@ import {
     updateShowcaseTopicAdmin
 } from './admin';
 import { getShowcaseCorsHeaders } from './cors';
-import { getPublicShowcaseCatalog } from './public';
+import { getPublicShowcaseCatalog, getPublicShowcaseTopic } from './public';
 import type { ShowcaseAdminActor, ShowcaseTopicDraft } from './types';
 import { DEFAULT_SHOWCASE_CATALOG } from '@/lib/default-showcases';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
@@ -123,6 +123,8 @@ describe('showcase publications', () => {
         expect(firstPublication?.revision).toBe(1);
         expect(publicResult.source).toBe('published');
         expect(publicResult.catalog.topics[0]?.title['zh-CN']).toBe(initialDraft.topic.title['zh-CN']);
+        expect(publicResult.catalog.topics[0]?.relatedTopicIds).toEqual([]);
+        expect((await getPublicShowcaseTopic(initialDraft.topic.slug))?.catalog.topics[0]?.relatedTopicIds).toEqual([]);
         expect(adminResult?.topic.draft.topic.title['zh-CN']).toBe('未发布的新标题');
         expect(adminResult?.publications).toHaveLength(1);
     });

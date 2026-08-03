@@ -63,6 +63,9 @@ function InformationPanel({
 export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatalog; topic: ShowcaseTopic }) {
     const { language, t } = useAppLanguage();
     const cases = getShowcaseCases(catalog, topic);
+    const relatedTopics = (topic.relatedTopicIds ?? [])
+        .map((id) => catalog.topics.find((candidate) => candidate.id === id))
+        .filter((candidate): candidate is ShowcaseTopic => Boolean(candidate));
 
     return (
         <div className='space-y-5'>
@@ -111,9 +114,46 @@ export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatal
                             tone='warning'>
                             {getLocalizedShowcaseText(topic.limitations, language)}
                         </InformationPanel>
+                        {topic.capabilities ? (
+                            <InformationPanel
+                                icon={<Sparkles className='size-4' />}
+                                title={t('showcase.topic.capabilities')}>
+                                {getLocalizedShowcaseText(topic.capabilities, language)}
+                            </InformationPanel>
+                        ) : null}
                     </div>
                 </div>
             </header>
+
+            {(topic.suitableFor || topic.unsuitableFor || topic.recommendedInputQuality) && (
+                <section className='grid min-w-0 gap-4 md:grid-cols-3' aria-labelledby='showcase-topic-fit'>
+                    <h2 id='showcase-topic-fit' className='sr-only'>
+                        {t('showcase.topic.fitTitle')}
+                    </h2>
+                    {topic.suitableFor ? (
+                        <InformationPanel
+                            icon={<CheckCircle2 className='size-4' />}
+                            title={t('showcase.topic.suitableFor')}>
+                            {getLocalizedShowcaseText(topic.suitableFor, language)}
+                        </InformationPanel>
+                    ) : null}
+                    {topic.unsuitableFor ? (
+                        <InformationPanel
+                            icon={<AlertTriangle className='size-4' />}
+                            title={t('showcase.topic.unsuitableFor')}
+                            tone='warning'>
+                            {getLocalizedShowcaseText(topic.unsuitableFor, language)}
+                        </InformationPanel>
+                    ) : null}
+                    {topic.recommendedInputQuality ? (
+                        <InformationPanel
+                            icon={<ImagePlus className='size-4' />}
+                            title={t('showcase.topic.inputQuality')}>
+                            {getLocalizedShowcaseText(topic.recommendedInputQuality, language)}
+                        </InformationPanel>
+                    ) : null}
+                </section>
+            )}
 
             <section aria-labelledby='showcase-topic-cases'>
                 <div className='mb-3 flex items-end justify-between gap-3'>
@@ -137,6 +177,49 @@ export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatal
                     ))}
                 </div>
             </section>
+
+            {topic.faq && topic.faq.length > 0 ? (
+                <section className='app-panel-card rounded-2xl border p-4 sm:p-5' aria-labelledby='showcase-topic-faq'>
+                    <h2 id='showcase-topic-faq' className='text-foreground text-base font-semibold'>
+                        {t('showcase.topic.faq')}
+                    </h2>
+                    <div className='mt-3 divide-y divide-[color:var(--panel-divider)]'>
+                        {topic.faq.map((item, index) => (
+                            <details key={`${topic.id}-faq-${index}`} className='group py-3 first:pt-0 last:pb-0'>
+                                <summary className='text-foreground cursor-pointer list-none pr-8 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] [&::-webkit-details-marker]:hidden'>
+                                    {getLocalizedShowcaseText(item.question, language)}
+                                </summary>
+                                <p className='text-on-panel-muted mt-2 text-sm leading-6'>
+                                    {getLocalizedShowcaseText(item.answer, language)}
+                                </p>
+                            </details>
+                        ))}
+                    </div>
+                </section>
+            ) : null}
+
+            {relatedTopics.length > 0 ? (
+                <section aria-labelledby='showcase-topic-related'>
+                    <h2 id='showcase-topic-related' className='text-foreground text-base font-semibold'>
+                        {t('showcase.topic.related')}
+                    </h2>
+                    <div className='mt-3 grid gap-3 sm:grid-cols-2'>
+                        {relatedTopics.map((related) => (
+                            <Link
+                                key={related.id}
+                                href={buildShowcaseTopicHref(related.slug)}
+                                className='app-panel-subtle border-panel-divider focus-visible:ring-ring/50 hover:bg-panel-ghost rounded-xl border p-3 transition-colors focus-visible:ring-2 focus-visible:outline-none'>
+                                <span className='text-foreground block text-sm font-medium'>
+                                    {getLocalizedShowcaseText(related.title, language)}
+                                </span>
+                                <span className='text-on-panel-muted mt-1 block text-xs leading-5'>
+                                    {getLocalizedShowcaseText(related.summary, language)}
+                                </span>
+                            </Link>
+                        ))}
+                    </div>
+                </section>
+            ) : null}
         </div>
     );
 }

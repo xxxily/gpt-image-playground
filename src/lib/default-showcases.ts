@@ -753,6 +753,42 @@ function buildDefaultShowcaseCatalog(): ShowcaseCatalog {
             summary: topicSpec.summary,
             preparation: topicSpec.preparation,
             limitations: topicSpec.limitations,
+            capabilities: text(
+                `通过 ${topicSpec.cases.map((item) => item.title['zh-CN']).join('、')} 等案例，把常见任务的输入顺序、默认提示词和输出参数直接载入工作台。`,
+                `Load the input order, default prompt, and output settings for common tasks such as ${topicSpec.cases.map((item) => item.title['en-US']).join(', ')} directly into the workbench.`
+            ),
+            suitableFor: text(
+                '适合希望先看案例、再使用自己的素材快速开始，并在专业工作台继续微调的用户。',
+                'Best for people who want to inspect a case, start quickly with their own assets, and continue refining in the professional workbench.'
+            ),
+            unsuitableFor: text(
+                '不适合把 AI 结果当作未经人工核验的身份、证据、医疗、法定文件或绝对真实记录。',
+                'Not suitable when an unreviewed AI result would be treated as identity evidence, medical evidence, a legal document, or an unquestionably truthful record.'
+            ),
+            recommendedInputQuality: text(
+                '优先使用主体完整、边缘清晰、无明显压缩或反光的原始图片；多图案例应保持角色和顺序准确。',
+                'Prefer original images with a complete subject, clear edges, and little compression or glare. For multi-image cases, keep roles and order correct.'
+            ),
+            faq: [
+                {
+                    question: text('点击案例后会立即产生费用吗？', 'Will opening a case immediately incur a charge?'),
+                    answer: text(
+                        '不会。案例只会帮助你准备图片、提示词和安全参数，必须由你在工作台主动点击生成。',
+                        'No. A case only prepares images, the prompt, and safe parameters. Generation starts only when you explicitly submit from the workbench.'
+                    )
+                },
+                {
+                    question: text('结果能和示例完全一样吗？', 'Will my result exactly match the example?'),
+                    answer: text(
+                        '不能保证。结果会受到原图质量、模型能力、随机性和个性化要求影响，专题展示的是可实现方向而非像素级承诺。',
+                        'Exact matching is not guaranteed. Source quality, model capabilities, randomness, and personal instructions affect the result; the topic demonstrates an achievable direction, not a pixel-level promise.'
+                    )
+                }
+            ],
+            relatedTopicIds: [
+                DEFAULT_TOPIC_SPECS[(topicIndex + 1) % DEFAULT_TOPIC_SPECS.length]!.id,
+                DEFAULT_TOPIC_SPECS[(topicIndex + 2) % DEFAULT_TOPIC_SPECS.length]!.id
+            ],
             tags: topicSpec.tags,
             featured: true,
             sortOrder: (topicIndex + 1) * 100,

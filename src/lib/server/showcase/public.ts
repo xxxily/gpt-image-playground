@@ -22,20 +22,35 @@ function parsePublicationSnapshot(value: string): PublicationSnapshot | null {
     try {
         const parsed = JSON.parse(value) as PublicationSnapshot;
         const generatedAt = Date.now();
-        const normalized = normalizeShowcaseCatalog({
-            schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
-            catalogRevision: `snapshot-${generatedAt}`,
-            generatedAt,
-            contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
-            topics: parsed.topic ? [parsed.topic] : [],
-            cases: parsed.cases,
-            assets: parsed.assets
-        });
+        const normalized = normalizeShowcaseCatalog(
+            {
+                schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
+                catalogRevision: `snapshot-${generatedAt}`,
+                generatedAt,
+                contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
+                topics: parsed.topic ? [parsed.topic] : [],
+                cases: parsed.cases,
+                assets: parsed.assets
+            },
+            { allowDanglingRelatedTopicIds: true }
+        );
         const topic = normalized?.topics[0];
         return normalized && topic ? { topic, cases: normalized.cases, assets: normalized.assets } : null;
     } catch {
         return null;
     }
+}
+
+function retainPublishedRelatedTopics(topics: ShowcaseTopic[]): ShowcaseTopic[] {
+    const publishedTopicIds = new Set(topics.map((topic) => topic.id));
+    return topics.map((topic) =>
+        topic.relatedTopicIds
+            ? {
+                  ...topic,
+                  relatedTopicIds: topic.relatedTopicIds.filter((id) => publishedTopicIds.has(id))
+              }
+            : topic
+    );
 }
 
 export async function getPublicShowcaseCatalog(now = new Date()): Promise<ShowcasePublicCatalogResult> {
@@ -74,15 +89,18 @@ export async function getPublicShowcaseCatalog(now = new Date()): Promise<Showca
     const acceptedEntries: typeof validEntries = [];
     for (const entry of validEntries) {
         const candidates = [...acceptedEntries, entry];
-        const candidateCatalog = normalizeShowcaseCatalog({
-            schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
-            catalogRevision: 'published-validation',
-            generatedAt: Math.max(...candidates.map((candidate) => candidate.row.publishedAt.getTime()), 1),
-            contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
-            topics: candidates.map((candidate) => candidate.snapshot.topic),
-            cases: candidates.flatMap((candidate) => candidate.snapshot.cases),
-            assets: candidates.flatMap((candidate) => candidate.snapshot.assets)
-        });
+        const candidateCatalog = normalizeShowcaseCatalog(
+            {
+                schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
+                catalogRevision: 'published-validation',
+                generatedAt: Math.max(...candidates.map((candidate) => candidate.row.publishedAt.getTime()), 1),
+                contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
+                topics: candidates.map((candidate) => candidate.snapshot.topic),
+                cases: candidates.flatMap((candidate) => candidate.snapshot.cases),
+                assets: candidates.flatMap((candidate) => candidate.snapshot.assets)
+            },
+            { allowDanglingRelatedTopicIds: true }
+        );
         if (candidateCatalog) acceptedEntries.push(entry);
     }
     if (acceptedEntries.length === 0) {
@@ -98,12 +116,13 @@ export async function getPublicShowcaseCatalog(now = new Date()): Promise<Showca
         .update(acceptedEntries.map((entry) => entry.row.catalogRevision).join('\n'))
         .digest('hex')
         .slice(0, 32);
+    const publishedTopics = retainPublishedRelatedTopics(acceptedEntries.map((entry) => entry.snapshot.topic));
     const catalog = normalizeShowcaseCatalog({
         schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
         catalogRevision: `published-${catalogRevision}`,
         generatedAt,
         contentNotice: DEFAULT_SHOWCASE_CONTENT_NOTICE,
-        topics: acceptedEntries.map((entry) => entry.snapshot.topic),
+        topics: publishedTopics,
         cases: acceptedEntries.flatMap((entry) => entry.snapshot.cases),
         assets: acceptedEntries.flatMap((entry) => entry.snapshot.assets)
     });
@@ -122,6 +141,7 @@ export async function getPublicShowcaseTopic(slugOrId: string): Promise<Showcase
     const result = await getPublicShowcaseCatalog();
     const topic = result.catalog.topics.find((candidate) => candidate.slug === slugOrId || candidate.id === slugOrId);
     if (!topic) return null;
+    const standaloneTopic = retainPublishedRelatedTopics([topic])[0]!;
     const caseIds = new Set(topic.caseIds);
     const cases = result.catalog.cases.filter((showcaseCase) => caseIds.has(showcaseCase.id));
     const assetIds = new Set<string>([topic.coverAssetId]);
@@ -132,7 +152,7 @@ export async function getPublicShowcaseTopic(slugOrId: string): Promise<Showcase
     }
     const catalog = normalizeShowcaseCatalog({
         ...result.catalog,
-        topics: [topic],
+        topics: [standaloneTopic],
         cases,
         assets: result.catalog.assets.filter((asset) => assetIds.has(asset.id))
     });
