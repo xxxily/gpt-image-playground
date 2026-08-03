@@ -2,12 +2,12 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 日期 | 2026-08-03 |
-| 状态 | 部分完成 (Partial)：功能、版本同步与本地验收已完成，等待 `v2.15.5` tag、Action 产物和 129 部署闭环。 |
+| 日期 | 2026-08-03（发布与 129 部署于 2026-08-04 结束） |
+| 状态 | 已完成 (Completed)：专题能力、需求与使用文档、`v2.15.5` Release、全平台 Action 产物和 129 生产部署均已闭环。 |
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md) |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。 |
-| 提交状态 | 功能与版本提交 `3502760 feat(showcase): add topic cases and guided creation` 已创建；发布状态回写提交待最终闭环。工作区保留用户既有无关改动。 |
+| 提交状态 | 功能提交 `3502760`、发布提交 `0708cd0`、i18n 修复提交 `301dbc2` 已推送；`master` 与 `v2.15.5` 均指向 `301dbc2`。本报告最终回写另行提交；工作区保留用户既有无关改动。 |
 
 ## 范围核对
 
@@ -22,7 +22,7 @@
 | 后台管理 | `/admin/showcases` 支持列表筛选、整目录草稿 JSON 编辑、预览、发布、下线、归档、版本回滚；viewer 只读 | 后台 UI/API、SQLite schema | 已完成 (Completed)：结构化表单与服务端媒体上传在需求中已列为 P0 后续增强/运维选项 |
 | 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换 | `src/lib/server/showcase/*` | 已完成 (Completed) |
 | i18n、主题与响应式 | 新增固定文案全部进入中英文资源；前台和后台均验证浅色/深色、桌面/移动，无横向溢出 | `messages.ts`、Playwright 验证 | 已完成 (Completed) |
-| 发布新版本和构建产物 | 版本已同步为 `2.15.5` 并创建提交，尚未完成 Tag、Action 产物与 129 部署 | 本报告“发布与部署” | 部分完成 (Partial) |
+| 发布新版本和构建产物 | `v2.15.5` 已发布；Action 的 Web、macOS、Windows、Linux、Android 和 Release jobs 全部成功；129 已切换至新 release | 本报告“发布与部署” | 已完成 (Completed) |
 
 ## 实际完成范围
 
@@ -60,6 +60,8 @@
 | 当前工作台已有 prompt/图片 | prompt 提供替换、追加、保留选择；源图提供替换、追加、取消后返回调整 | 追加后仍受当前模型参考图数量和文件限制校验 |
 | 后台结构化表单工作量较大 | P0 交付经过同一 schema 校验的完整 JSON 编辑器、前台组件预览和版本操作 | 普通运营人员仍需要理解目录 JSON，后续应结构化 |
 | 多协作者外部模型通道返回 503 | 保留已完成协作者结果，其余工作由主代理继续实现和验证 | 不影响代码运行，但少了一轮独立 UI/需求审阅 |
+| 首次 Release Action 因后台预览提示残留硬编码中文失败 | 将文案迁移到中英文 i18n 资源，提交 `301dbc2`，重建 `v2.15.5` tag 并重新触发正式 Release workflow | 后续继续依靠 CI 的可见文案检查阻止同类回归 |
+| 161 的 Debian 10 构建容器访问归档源和 Node headers 出现间歇性网络失败 | 归档源恢复后重试；最终在 detached 部署 worktree 中让 `node-gyp` 使用 Node 二进制缓存自带的 `include/node`，不再二次访问 `nodejs.org` | 此构建辅助修正未进入本次已发布 tag；建议在后续版本正式合入并为 apt 下载增加重试 |
 
 ## 验证
 
@@ -82,6 +84,13 @@
 | Rust 依赖审计 | `rtk npm run rust:audit`、`rtk cargo audit --file src-tauri/Cargo.lock --json` | 未通过：锁文件中的 Tauri/跨平台间接依赖命中 `RUSTSEC-2026-0194`、`RUSTSEC-2026-0195`（`quick-xml 0.39.2`）和 `RUSTSEC-2026-0185`（`quinn-proto 0.11.14`）；本次未通过强制跨代覆盖改写 Tauri 依赖图，作为发布已知风险跟踪 |
 | 版本一致性 | Node 版本检查脚本、`rtk cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1` | `package.json`、package-lock 根版本、Tauri、Cargo 均为 `2.15.5`，锁文件可解析 |
 | Tauri 真机/Android | 真实桌面运行时和 Android 真机 | 未执行；由 release Action 构建产物，并在后续版本验证安装 |
+| GitHub Actions | `gh run view 30842915666` | workflow 状态 `completed/success`；metadata/Web/Desktop、macOS、Windows、Linux、Android、Publish Release jobs 全部成功 |
+| Release 资产 | `gh release view v2.15.5` | 正式 Release（非 draft、非 prerelease）；DMG、updater tar/signature、EXE、MSI、deb、rpm、AppImage、`latest.json` 与 universal release APK 均存在 |
+| 129 生产部署 | `rtk ./scripts/deploy-129.sh --backend 161` | 161 Docker 生成 47 MB、glibc 2.28 兼容运行包；129 `current` 指向 `releases/20260804033254-v2.15.5`，systemd `active` |
+| 129 线上路由 | `curl` 检查 `/`、`/topics`、`/admin`、`/admin/showcases`、`/admin/promo` | `/`、`/topics` 为 200；后台入口为 307 并跳转 `/admin/login`，符合未登录预期 |
+| 129 专题 API 与缓存 | `curl -I /api/showcases`、`curl /api/showcases/old-photo-restoration` | API 为 200，返回 ETag 和 `public, max-age=60, stale-while-revalidate=300`；专题详情可读取；根页为 `no-cache, no-store, must-revalidate` |
+| 129 native 运行时 | 在当前 release 的 bundled Node 中创建 `better-sqlite3 :memory:` 并执行 `select 1` | 通过；部署元数据为 Node `20.20.2`、`linux-x64-glibc`、`native_mode=linux-glibc228`、builder `161-docker` |
+| Outline 文档同步 | 先搜索同名文档，再按分类创建并回读验证 | 需求文档与本报告已同步至「AI报告」；129/161 操作日志已同步至「操作记录」，均为已发布状态 |
 
 ## 发布与部署
 
@@ -89,15 +98,16 @@
 | --- | --- |
 | 目标版本 | `2.15.5`（当前基线 `2.15.4`） |
 | 版本文件与 Changelog | 已更新 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`CHANGELOG.md` |
-| commit/tag/push | 已提交 `3502760`；tag 与 push 待执行 |
-| GitHub Actions | 尚未触发；推送 `v2.15.5` 后检查 `.github/workflows/build-release.yml` |
-| Release 产物 | 尚未检查 macOS/Windows/Linux、updater 文件和 Android APK |
-| 129 部署 | 尚未执行；应从已验证 release ref 的独立 worktree 运行 `scripts/deploy-129.sh` |
+| commit/tag/push | `3502760`、`0708cd0`、`301dbc2` 已推送；`master` 与 `v2.15.5` 指向 `301dbc2c3117c81e93467975f566da67e6329dda` |
+| GitHub Actions | [Release workflow 30842915666](https://github.com/xxxily/gpt-image-playground/actions/runs/30842915666) 已完成且全部 jobs 成功 |
+| Release 产物 | [GitHub Release v2.15.5](https://github.com/xxxily/gpt-image-playground/releases/tag/v2.15.5) 已正式发布，桌面端、更新器元数据/签名与 Android APK 齐全 |
+| 129 部署 | 已通过 161 Docker 构建 glibc 2.28 运行包并部署；当前 release 为 `/root/work/gpt-image-playground/releases/20260804033254-v2.15.5`，服务 `active`，线上检查通过 |
 | 142 部署 | 明确跳过；按 `RELEASE_PROCESS.md` 当前暂停 |
+| Outline | 需求：`/doc/gpt-image-playground-U4dlPsf2LV`；实现报告：`/doc/v2155-RIyic3iPPT`；129：`/doc/gpt-image-playground-v2155-129-8zh4BYdkIW`；161：`/doc/gpt-image-playground-v2155-161-DeL7h3eyiU` |
 
 ## 后续建议
 
-- 按 `RELEASE_PROCESS.md` 完成 secret、audit、Web/Desktop/Rust 全量校验，再只暂存本任务文件。
-- 推送 tag 后等待 Action 全部成功，核对桌面包、`latest.json`/签名文件和 Android APK。
-- 129 部署后验证根页、`/admin`、`/admin/showcases` 以及根页 `Cache-Control: no-cache, no-store, must-revalidate`。
 - 后续将后台 JSON 编辑器升级为结构化专题/案例/媒体表单，并增加媒体上传、版权归因、指标和真实案例回归审核。
+- 后续依赖升级中处理 `quick-xml 0.39.2` 和 `quinn-proto 0.11.14` 的已知 RustSec 风险，不建议在未验证 Tauri 全平台兼容性的情况下强制跨代覆盖锁文件。
+- 将本次 detached worktree 中验证有效的本地 Node headers 构建方式正式合入 `scripts/build-129-runtime-docker.sh`，并为 Debian archive 的 `apt-get update` 增加有限重试，降低 161 构建链路对瞬时网络的敏感度。
+- 对 macOS、Windows、Linux 和 Android Release 包补做安装级冒烟；本次仅验证了 CI 构建和资产完整性，未在真机安装。
