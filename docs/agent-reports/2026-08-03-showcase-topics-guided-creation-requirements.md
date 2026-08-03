@@ -113,6 +113,21 @@
 | 142 部署             | 明确跳过；按 `RELEASE_PROCESS.md` 当前暂停                                                                                                                                                    |
 | Outline              | 需求：`/doc/gpt-image-playground-U4dlPsf2LV`；报告：`/doc/v2156-RIyic3iPPT`；129：`/doc/gpt-image-playground-v2156-129-HCPCI4ob6j`；161：`/doc/gpt-image-playground-v2156-161-kRmY7F7XZY` |
 
+## Autopilot 收尾复验（2026-08-04 07:25–07:52 CST）
+
+停止钩子发现 OMX autopilot 仍遗留在 `planning`。本轮没有重复修改已发布功能，而是将状态推进到 QA / validation，重新采集以下证据后再清理 mode 状态。
+
+| 视角 | 新鲜验证 | 结果 |
+| ---- | -------- | ---- |
+| 功能 | 专题/i18n 定向测试、生产 `/topics`、专题列表/详情 API、未登录后台跳转 | 8 个测试文件、64 项通过；线上路由分别为 200/307，行为符合预期 |
+| 质量 | `npm run typecheck`、`npm run lint -- --no-cache`、`npm run test`、`npm run build`、`npm run build:desktop`、`git diff --check` | 全部通过；全量为 116 个测试文件、1074 项。desktop 首次与 Web build 并行时命中 Next build lock，Web 完成后串行重跑通过 |
+| Rust | `npm run rust:test`、`npm run rust:clippy` | 83 项测试通过；Clippy 在 `-D warnings` 下通过 |
+| 依赖与密钥 | `npm run audit:prod`、`npm run secret-scan`、`npm run release:env-check` | npm audit 首次因 registry TLS 断开失败，重试后为 0 vulnerabilities；密钥与环境检查通过 |
+| Rust 依赖 | `cargo audit --no-fetch --stale --file src-tauri/Cargo.lock` | 缓存库扫描仍为 2 个已知 `quick-xml 0.39.2` 高危项；`quinn-proto` 告警未复现。另有 21 个允许的维护/unsound warning，继续作为 Tauri 依赖链风险跟踪 |
+| 发布 | `gh run view 30857545674`、`gh release view v2.15.6` | Action 7 个 jobs 全部成功；正式 Release 仍为非 draft/非 prerelease，15 个资产齐全 |
+| 生产 | 129 release/systemd/Node、ETag 条件请求、bundled `better-sqlite3`、回滚点 | 当前为 `20260804062651-v2.15.6`、服务 `active`、Node `20.20.2`；ETag 返回 304；SQLite 查询返回 1；`v2.15.5` 回滚目录仍在 |
+| 清理 | 161 source 环境、本地 worktree、浏览器会话、Outline 回读 | 161 `.env.production`/`.env.local` 均不存在；部署 worktree 已移除；无活跃浏览器会话；Outline 无待同步占位 |
+
 ## 后续建议
 
 - 补齐 24 个经过真实流程生成、授权和人工核验的输入/输出案例，记录模型、配方版本、日期与候选次数。
