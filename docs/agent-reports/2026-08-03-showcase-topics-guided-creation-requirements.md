@@ -7,7 +7,7 @@
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md) |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。 |
-| 提交状态 | 功能提交 `3502760`、发布提交 `0708cd0`、i18n 修复提交 `301dbc2` 已推送；`master` 与 `v2.15.5` 均指向 `301dbc2`。本报告最终回写另行提交；工作区保留用户既有无关改动。 |
+| 提交状态 | 功能提交 `3502760`、发布提交 `0708cd0`、i18n 修复/Release tag 提交 `301dbc2` 和最终报告提交 `2914205` 已推送；`v2.15.5` 固定指向实际构建提交 `301dbc2`，`master` 当前指向 `2914205`。工作区保留用户既有无关改动。 |
 
 ## 范围核对
 
@@ -98,7 +98,7 @@
 | --- | --- |
 | 目标版本 | `2.15.5`（当前基线 `2.15.4`） |
 | 版本文件与 Changelog | 已更新 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`CHANGELOG.md` |
-| commit/tag/push | `3502760`、`0708cd0`、`301dbc2` 已推送；`master` 与 `v2.15.5` 指向 `301dbc2c3117c81e93467975f566da67e6329dda` |
+| commit/tag/push | `v2.15.5` 指向已构建提交 `301dbc2c3117c81e93467975f566da67e6329dda`；发布后报告提交 `2914205` 已推送到 `master` |
 | GitHub Actions | [Release workflow 30842915666](https://github.com/xxxily/gpt-image-playground/actions/runs/30842915666) 已完成且全部 jobs 成功 |
 | Release 产物 | [GitHub Release v2.15.5](https://github.com/xxxily/gpt-image-playground/releases/tag/v2.15.5) 已正式发布，桌面端、更新器元数据/签名与 Android APK 齐全 |
 | 129 部署 | 已通过 161 Docker 构建 glibc 2.28 运行包并部署；当前 release 为 `/root/work/gpt-image-playground/releases/20260804033254-v2.15.5`，服务 `active`，线上检查通过 |
