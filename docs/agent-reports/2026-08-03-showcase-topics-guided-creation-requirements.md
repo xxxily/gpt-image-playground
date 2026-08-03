@@ -3,11 +3,11 @@
 | 字段 | 内容 |
 | --- | --- |
 | 日期 | 2026-08-03 |
-| 状态 | 部分完成 (Partial)：功能与本地验收已完成，等待 `v2.15.5` 发布、Action 产物和 129 部署闭环。 |
+| 状态 | 部分完成 (Partial)：功能、版本同步与本地验收已完成，等待 `v2.15.5` tag、Action 产物和 129 部署闭环。 |
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md) |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。 |
-| 提交状态 | 功能提交与发布提交待执行；工作区保留用户既有无关改动。 |
+| 提交状态 | 功能与版本提交 `3502760 feat(showcase): add topic cases and guided creation` 已创建；发布状态回写提交待最终闭环。工作区保留用户既有无关改动。 |
 
 ## 范围核对
 
@@ -22,7 +22,7 @@
 | 后台管理 | `/admin/showcases` 支持列表筛选、整目录草稿 JSON 编辑、预览、发布、下线、归档、版本回滚；viewer 只读 | 后台 UI/API、SQLite schema | 已完成 (Completed)：结构化表单与服务端媒体上传在需求中已列为 P0 后续增强/运维选项 |
 | 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换 | `src/lib/server/showcase/*` | 已完成 (Completed) |
 | i18n、主题与响应式 | 新增固定文案全部进入中英文资源；前台和后台均验证浅色/深色、桌面/移动，无横向溢出 | `messages.ts`、Playwright 验证 | 已完成 (Completed) |
-| 发布新版本和构建产物 | 目标 `2.15.5`，尚未完成版本同步、提交、Tag、Action 产物与 129 部署 | 本报告“发布与部署” | 部分完成 (Partial) |
+| 发布新版本和构建产物 | 版本已同步为 `2.15.5` 并创建提交，尚未完成 Tag、Action 产物与 129 部署 | 本报告“发布与部署” | 部分完成 (Partial) |
 
 ## 实际完成范围
 
@@ -75,6 +75,12 @@
 | 前台浏览器 | 1440 桌面、390×844 移动端；浅色/深色；无横向溢出；案例工作台 href 正确 | 通过；浏览器和 dev server 已关闭 |
 | 后台浏览器 | 独立临时 SQLite + 测试 owner；1440×900 浅色、1280×800 深色、390×844 浅色/深色；创建、预览、发布、公开读取、下线、回滚 | 通过；移动端 `scrollWidth === clientWidth === 390`，控制台 0 error / 0 warning；浏览器、dev server 和临时数据已清理 |
 | 安全依赖审计 | `rtk npm run audit:prod` | 初次发现 4 个 high；升级兼容 patch 后复验为 0 vulnerabilities |
+| 发布前安全与环境 | `rtk npm run secret-scan`、`rtk npm run release:env-check` | 通过；私有 `.env.local` 未被 Git 跟踪，跟踪文件未发现疑似密钥 |
+| 全量单元测试 | `rtk npm run test` | 115 个测试文件、1068 项测试全部通过 |
+| Rust 测试 | `rtk npm run rust:test` | 83 项测试通过 |
+| Rust Clippy | `rtk npm run rust:clippy` | 通过，`-D warnings` 下无警告 |
+| Rust 依赖审计 | `rtk npm run rust:audit`、`rtk cargo audit --file src-tauri/Cargo.lock --json` | 未通过：锁文件中的 Tauri/跨平台间接依赖命中 `RUSTSEC-2026-0194`、`RUSTSEC-2026-0195`（`quick-xml 0.39.2`）和 `RUSTSEC-2026-0185`（`quinn-proto 0.11.14`）；本次未通过强制跨代覆盖改写 Tauri 依赖图，作为发布已知风险跟踪 |
+| 版本一致性 | Node 版本检查脚本、`rtk cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1` | `package.json`、package-lock 根版本、Tauri、Cargo 均为 `2.15.5`，锁文件可解析 |
 | Tauri 真机/Android | 真实桌面运行时和 Android 真机 | 未执行；由 release Action 构建产物，并在后续版本验证安装 |
 
 ## 发布与部署
@@ -82,8 +88,8 @@
 | 项目 | 状态 |
 | --- | --- |
 | 目标版本 | `2.15.5`（当前基线 `2.15.4`） |
-| 版本文件与 Changelog | 待更新 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`CHANGELOG.md` |
-| commit/tag/push | 尚未执行 |
+| 版本文件与 Changelog | 已更新 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`CHANGELOG.md` |
+| commit/tag/push | 已提交 `3502760`；tag 与 push 待执行 |
 | GitHub Actions | 尚未触发；推送 `v2.15.5` 后检查 `.github/workflows/build-release.yml` |
 | Release 产物 | 尚未检查 macOS/Windows/Linux、updater 文件和 Android APK |
 | 129 部署 | 尚未执行；应从已验证 release ref 的独立 worktree 运行 `scripts/deploy-129.sh` |
