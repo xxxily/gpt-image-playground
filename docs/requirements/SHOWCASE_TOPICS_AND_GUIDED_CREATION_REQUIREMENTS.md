@@ -1514,3 +1514,46 @@ src/app/api/admin/showcases/*
 - 托管媒体删除再次按源码复核：引用检查、文件隔离、数据库删除和审计均在同一 SQLite `IMMEDIATE` 写事务中执行；草稿 create/update 的托管记录复查与写入也在同一写事务中，未复现“先隔离文件后检查引用”的风险。
 - `tauri-plugin-log` 从 `2.8.0` 锁定升级到 `2.9.0`，移除 `byte-unit -> rust_decimal -> rkyv` 间接链和 `RUSTSEC-2026-0235`；Rust 83 项测试与 Clippy 通过。
 - Rust audit 仍因 `quick-xml 0.39.2` 的 `RUSTSEC-2026-0194`、`RUSTSEC-2026-0195` 非零退出。安全版本来自更高版本 `plist` / Wayland 构建链，当前会突破项目 Rust `1.77.2` MSRV，因此本补丁不以强升工具链换取表面清零。
+
+## 31. v2.15.11 深链、缓存与部署可靠性增量
+
+> 2026-08-04 第八次实现核对。该补丁完成静态专题深链 hydration、筛选上下文返回、未来 recipe 数据隔离、跨版本缓存迁移和 129 认证环境保护。专题代码闭环达到当前发布门槛；总体需求仍为 **部分完成 (Partial)**，因为真实案例资产、5 名非专业用户测试、多实例集中分析和四平台安装级验收仍缺外部证据。
+
+### 31.1 静态路由与目录上下文
+
+- `/topics` 的服务端静态 HTML 和浏览器第一次 React 渲染均使用无查询参数的目录默认态；挂载后才消费 `topic`、`case`、搜索、筛选和排序参数，避免静态导出刷新触发 React #418。
+- 应用语言也遵循同一首帧规则：静态 HTML 与客户端第一次渲染使用 `zh-CN`，挂载后再载入用户保存的 `en-US`，因此英文深链刷新不会产生 hydration mismatch。
+- 目录卡片把当前关键词、输入类型、能力标签、任务分类和排序编码为受限 `return` 参数。专题、案例、相关专题、下一案例和失效案例导航均继续携带该目录上下文。
+- `return` 只接受内部 `/topics` 目录筛选字段；外部 URL、协议相对 URL、hash、嵌套 `topic` / `case` / `return` 和未知字段均被丢弃，不能形成开放重定向。
+
+### 31.2 未来配方与缓存契约
+
+- `ShowcaseCase` 明确拆分为 `ShowcaseExecutableCase` 与 `ShowcaseReadOnlyCase`。只读未来案例不包含 `recipe`，仅可保留经过双语文本校验的 `readOnlyPrompt` 和 `unsupportedRecipeVersion`。
+- 未知 recipe 的原始对象、输入槽、输出参数和未知动作不会进入公共扩展 wire、localStorage 缓存、后台草稿、Guide Dialog 或工作台状态；卡片、详情和 deep-link 均不能执行未知字段。
+- 严格 v1 与扩展 v2 使用独立缓存 key。当前客户端优先扩展缓存，离线时仍可使用真正的严格 v1 缓存；`v2.15.10` 写入旧 key 且没有 contract 标记的扩展缓存会经过重新归一化后迁移到新 key，避免升级后离线内容无故回退。
+- 清理专题缓存会同时删除两种 key；缓存最大体积、端点绑定、ETag、超时和内置目录回退保持不变。
+
+### 31.3 部署认证边界
+
+- 161 与本地 Docker 构建环境主动删除 `BETTER_AUTH_SECRET` 和 `ADMIN_BOOTSTRAP_SECRET`，生产认证凭据不再上传到构建主机。
+- 129 部署环境优先采用 release 配置和显式进程环境；缺少认证键时，从权限受控的现有 `shared/.env` 继承原始 dotenv 赋值，不在日志中解码或打印 secret。
+- `--check-build-env` 可在不构建、不部署的情况下证明构建环境不含认证键；`--check-env` 验证最终部署环境包含非空、非纯空白的 `BETTER_AUTH_SECRET`，且输出仅显示 `<redacted>`。
+- 切换 `current` 前再次验证认证键；部署后自动要求 `/admin` 与 `/admin/showcases` 返回 `307/308` 并跳转 `/admin/login`，避免主站正常但 Better Auth 因 secret 丢失返回 500，也避免意外公开后台被误判为健康。
+
+### 31.4 本增量验收状态
+
+| 验收项 | 状态 | 证据边界 |
+| ------ | ---- | -------- |
+| 静态专题深链与中英文 hydration | 已完成 (Completed) | production build；中文/英文直接刷新专题与案例，Console 0 error / 0 warning；Provider 首帧回归测试 |
+| 筛选上下文返回与 URL 安全 | 已完成 (Completed) | 导航单测覆盖全筛选组合、外站、`//`、hash、嵌套详情与未知字段；390×844 / 1280 浏览器往返复验 |
+| 未来 recipe 只读隔离 | 已完成 (Completed) | executable/read-only 联合类型、公共 wire、缓存、工作台守卫；混合目录和恶意字段回归测试 |
+| 跨版本缓存迁移 | 已完成 (Completed) | 严格 v1 / 扩展 v2 双 key 测试；无标记 `v2.15.10` 缓存离线迁移测试 |
+| 部署认证保护 | 已完成 (Completed) | `bash -n`、`--check-build-env`、带显式 dummy secret 的构建隔离检查、`--check-env` 远端继承验证 |
+| 默认真实案例、用户研究与安装级真机 | 部分完成 (Partial) | 24 个案例仍为明确占位；未执行 5 名非专业用户测试及 macOS/Windows/Linux/Android 安装级验收 |
+
+### 31.5 发布质量边界
+
+- 前端 126 个测试文件、1128 项测试通过；TypeScript、全量 ESLint、Web production build 和 desktop static export 通过。
+- Rust 83 项测试与 Clippy `-D warnings` 通过；npm production audit 为 0 vulnerabilities，密钥和发布环境检查通过。
+- `cargo audit` 仍仅因 `quick-xml 0.39.2` 两项既有高危公告非零退出。`cargo update --dry-run -p quick-xml --precise 0.41.0` 证明 `plist 1.9.0` 的 `^0.39.2` 约束不能直接升级；`plist 1.10.0` 可引入安全版但要求 Rust 1.88，高于项目声明的 1.77.2，继续作为 Tauri 工具链升级项。
+- 浏览器覆盖 1440×900 深色案例、1280 桌面筛选往返、390×844 浅色双图案例、中文与英文、键盘、触摸、reduced-motion、失效链接和 Guide Dialog；均无横向溢出，核心场景 Console 0 error / 0 warning，Guide 未产生生成请求。
