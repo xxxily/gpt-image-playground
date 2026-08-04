@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG } from '@/lib/config';
 import { DEFAULT_SHOWCASE_CATALOG } from '@/lib/default-showcases';
+import { isExecutableShowcaseCase, type ShowcaseReadOnlyCase, type ShowcaseTopic } from '@/lib/showcase';
 import {
     clearShowcaseCatalogCache,
     getShowcaseCase,
@@ -9,9 +10,22 @@ import {
     loadShowcaseCatalog,
     readShowcaseCatalogCache,
     SHOWCASE_CATALOG_CACHE_KEY,
+    SHOWCASE_CATALOG_EXTENDED_CACHE_KEY,
     writeShowcaseCatalogCache
 } from '@/lib/showcase-client';
 import { describe, expect, it, vi } from 'vitest';
+
+function strictV1Catalog() {
+    return {
+        ...DEFAULT_SHOWCASE_CATALOG,
+        topics: DEFAULT_SHOWCASE_CATALOG.topics.map((topic) => {
+            const legacyTopic: ShowcaseTopic = { ...topic };
+            Reflect.deleteProperty(legacyTopic, 'categories');
+            Reflect.deleteProperty(legacyTopic, 'publishedAt');
+            return legacyTopic;
+        })
+    };
+}
 
 function createStorage() {
     const values = new Map<string, string>();
@@ -103,7 +117,7 @@ describe('showcase catalog client', () => {
 
     it('ignores damaged or cross-endpoint cache entries and can clear them', () => {
         const storage = createStorage();
-        storage.setItem(SHOWCASE_CATALOG_CACHE_KEY, '{broken');
+        storage.setItem(SHOWCASE_CATALOG_EXTENDED_CACHE_KEY, '{broken');
         expect(readShowcaseCatalogCache(storage)).toBeNull();
 
         writeShowcaseCatalogCache(
@@ -121,6 +135,85 @@ describe('showcase catalog client', () => {
         expect(storage.values.size).toBe(0);
     });
 
+    it('keeps strict-v1 and extended caches isolated and can use a strict-v1 entry offline', async () => {
+        const storage = createStorage();
+        const endpoint = '/api/showcases';
+        expect(
+            writeShowcaseCatalogCache(
+                {
+                    version: 1,
+                    contract: 'legacy-v1',
+                    endpoint,
+                    cachedAt: 10,
+                    etag: '"legacy"',
+                    catalog: strictV1Catalog()
+                },
+                storage
+            )
+        ).toBe(true);
+        expect(
+            writeShowcaseCatalogCache(
+                {
+                    version: 1,
+                    contract: 'extended-v2',
+                    endpoint,
+                    cachedAt: 20,
+                    etag: '"extended"',
+                    catalog: DEFAULT_SHOWCASE_CATALOG
+                },
+                storage
+            )
+        ).toBe(true);
+
+        expect(storage.values.has(SHOWCASE_CATALOG_CACHE_KEY)).toBe(true);
+        expect(storage.values.has(SHOWCASE_CATALOG_EXTENDED_CACHE_KEY)).toBe(true);
+        expect(readShowcaseCatalogCache(storage, endpoint, 'legacy-v1')?.catalog.topics[0]).not.toHaveProperty(
+            'categories'
+        );
+        expect(readShowcaseCatalogCache(storage, endpoint, 'extended-v2')?.catalog.topics[0]?.categories).toBeDefined();
+
+        storage.removeItem(SHOWCASE_CATALOG_EXTENDED_CACHE_KEY);
+        const offline = await loadShowcaseCatalog({
+            endpoint,
+            storage,
+            fetcher: vi.fn(async () => {
+                throw new Error('offline');
+            })
+        });
+        expect(offline).toMatchObject({ source: 'cache', stale: true });
+        expect(offline.catalog.topics[0]).not.toHaveProperty('categories');
+    });
+
+    it('migrates an unversioned extended cache written by the previous client', async () => {
+        const storage = createStorage();
+        const endpoint = '/api/showcases';
+        storage.setItem(
+            SHOWCASE_CATALOG_CACHE_KEY,
+            JSON.stringify({
+                version: 1,
+                endpoint,
+                cachedAt: 30,
+                etag: '"previous-client"',
+                catalog: DEFAULT_SHOWCASE_CATALOG
+            })
+        );
+
+        const offline = await loadShowcaseCatalog({
+            endpoint,
+            storage,
+            fetcher: vi.fn(async () => {
+                throw new Error('offline');
+            })
+        });
+
+        expect(offline).toMatchObject({ source: 'cache', stale: true });
+        expect(offline.catalog.topics[0]?.categories).toBeDefined();
+        expect(readShowcaseCatalogCache(storage, endpoint, 'extended-v2')).toMatchObject({
+            contract: 'extended-v2',
+            etag: '"previous-client"'
+        });
+    });
+
     it('resolves topics, ordered cases, and case slugs', () => {
         const topic = getShowcaseTopic(DEFAULT_SHOWCASE_CATALOG, 'old-photo-restoration');
         expect(topic).not.toBeNull();
@@ -131,9 +224,12 @@ describe('showcase catalog client', () => {
     it('does not infer image requirements from a read-only future recipe', () => {
         const sourceTopic = getShowcaseTopic(DEFAULT_SHOWCASE_CATALOG, 'old-photo-restoration')!;
         const sourceCase = getShowcaseCases(DEFAULT_SHOWCASE_CATALOG, sourceTopic)[0]!;
-        const futureCase = {
-            ...sourceCase,
-            recipe: { ...sourceCase.recipe, inputSlots: [] },
+        expect(isExecutableShowcaseCase(sourceCase)).toBe(true);
+        if (!isExecutableShowcaseCase(sourceCase)) throw new Error('Expected a built-in executable showcase case');
+        const { recipe, ...readOnlyFields } = sourceCase;
+        expect(recipe.version).toBe(1);
+        const futureCase: ShowcaseReadOnlyCase = {
+            ...readOnlyFields,
             unsupportedRecipeVersion: 2
         };
         const futureTopic = { ...sourceTopic, caseIds: [futureCase.id] };

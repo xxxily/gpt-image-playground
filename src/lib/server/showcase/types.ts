@@ -1,8 +1,9 @@
-import type { ShowcaseAsset, ShowcaseCase, ShowcaseCatalog, ShowcaseTopic } from '@/lib/showcase';
+import type { ShowcaseAsset, ShowcaseCatalog, ShowcaseExecutableCase, ShowcaseTopic } from '@/lib/showcase';
 
 export type ShowcaseTopicDraft = {
     topic: ShowcaseTopic;
-    cases: ShowcaseCase[];
+    /** Drafts are executable by construction; future recipes are read-only public data only. */
+    cases: ShowcaseExecutableCase[];
     assets: ShowcaseAsset[];
 };
 

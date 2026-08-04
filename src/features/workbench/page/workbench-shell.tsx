@@ -22,7 +22,7 @@ import { WorkspaceStatusChip } from '@/components/workspaces/workspace-status-ch
 import { WorkbenchDialogs } from '@/features/workbench/workbench-dialogs';
 import { WorkbenchHeader } from '@/features/workbench/workbench-header';
 import type { ConfigurationGuidanceTarget } from '@/lib/configuration-guidance';
-import type { ShowcaseCase, ShowcaseTopic } from '@/lib/showcase';
+import type { ShowcaseExecutableCase, ShowcaseTopic } from '@/lib/showcase';
 import type { ShowcaseModelCompatibility } from '@/lib/showcase-recipe';
 import { ALL_CREATIVE_WORKSPACES_ID } from '@/types/creative-workspace';
 import type { HistoryMetadata } from '@/types/history';
@@ -113,7 +113,7 @@ type WorkbenchShellProps = {
     showcaseGuide: {
         open: boolean;
         topic: ShowcaseTopic | null;
-        showcaseCase: ShowcaseCase | null;
+        showcaseCase: ShowcaseExecutableCase | null;
         currentPrompt: string;
         currentSourceImageCount: number;
         compatibility: ShowcaseModelCompatibility | null;

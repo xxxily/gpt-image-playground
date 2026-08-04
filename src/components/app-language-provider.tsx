@@ -1,10 +1,6 @@
 'use client';
 
-import {
-    CONFIG_CHANGED_EVENT,
-    loadConfig,
-    saveConfig
-} from '@/lib/config';
+import { CONFIG_CHANGED_EVENT, loadConfig, saveConfig } from '@/lib/config';
 import {
     APP_LANGUAGE_LABELS,
     DEFAULT_APP_LANGUAGE,
@@ -12,7 +8,6 @@ import {
     normalizeAppLanguage,
     type AppLanguage
 } from '@/lib/i18n/language';
-import { getDocumentAppLanguage } from '@/lib/i18n/initializer';
 import { translateMessage, type TranslateParams } from '@/lib/i18n/translator';
 import * as React from 'react';
 
@@ -35,16 +30,18 @@ export function useAppLanguage(): AppLanguageContextValue {
         language: DEFAULT_APP_LANGUAGE,
         setLanguage: () => undefined,
         t: (key, params) => translateMessage(DEFAULT_APP_LANGUAGE, key, params),
-        formatDateTime: (value, options) => new Intl.DateTimeFormat(DEFAULT_APP_LANGUAGE, options).format(new Date(value)),
+        formatDateTime: (value, options) =>
+            new Intl.DateTimeFormat(DEFAULT_APP_LANGUAGE, options).format(new Date(value)),
         formatNumber: (value, options) => new Intl.NumberFormat(DEFAULT_APP_LANGUAGE, options).format(value),
         languageLabels: APP_LANGUAGE_LABELS
     };
 }
 
 export function AppLanguageProvider({ children }: { children: React.ReactNode }) {
-    const [language, setLanguageState] = React.useState<AppLanguage>(() =>
-        normalizeAppLanguage(getDocumentAppLanguage()) ?? DEFAULT_APP_LANGUAGE
-    );
+    // Static exports are rendered with the default language. Keep the browser's
+    // first React render identical, then apply the persisted language after
+    // hydration so the pre-hydration document initializer cannot cause #418.
+    const [language, setLanguageState] = React.useState<AppLanguage>(DEFAULT_APP_LANGUAGE);
 
     React.useEffect(() => {
         const config = loadConfig();
@@ -72,15 +69,17 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
         saveConfig({ appLanguage: normalized });
     }, []);
 
-    const value = React.useMemo<AppLanguageContextValue>(() => ({
-        language,
-        setLanguage,
-        t: (key, params) => translateMessage(language, key, params),
-        formatDateTime: (value, options) => new Intl.DateTimeFormat(language, options).format(new Date(value)),
-        formatNumber: (value, options) => new Intl.NumberFormat(language, options).format(value),
-        languageLabels: APP_LANGUAGE_LABELS
-    }), [language, setLanguage]);
+    const value = React.useMemo<AppLanguageContextValue>(
+        () => ({
+            language,
+            setLanguage,
+            t: (key, params) => translateMessage(language, key, params),
+            formatDateTime: (value, options) => new Intl.DateTimeFormat(language, options).format(new Date(value)),
+            formatNumber: (value, options) => new Intl.NumberFormat(language, options).format(value),
+            languageLabels: APP_LANGUAGE_LABELS
+        }),
+        [language, setLanguage]
+    );
 
     return <AppLanguageContext.Provider value={value}>{children}</AppLanguageContext.Provider>;
 }
-

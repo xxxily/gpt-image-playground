@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getAssetLibraryFile, isAssetLibraryImage, listAssetLibraryItems } from '@/lib/asset-library';
 import { getClipboardImageFiles } from '@/lib/clipboard-images';
 import { copyTextToClipboard, readDesktopClipboardImageFile } from '@/lib/desktop-runtime';
-import { isExecutableShowcaseCase, type ShowcaseCase, type ShowcaseTopic } from '@/lib/showcase';
+import type { ShowcaseExecutableCase, ShowcaseTopic } from '@/lib/showcase';
 import {
     buildShowcaseRecipePrompt,
     localizeShowcaseText,
@@ -62,7 +62,7 @@ const COMPATIBILITY_REASON_KEYS: Record<ShowcaseModelCompatibilityReason, string
 type ShowcaseGuideDialogProps = {
     open: boolean;
     topic: ShowcaseTopic | null;
-    showcaseCase: ShowcaseCase | null;
+    showcaseCase: ShowcaseExecutableCase | null;
     currentPrompt: string;
     currentSourceImageCount: number;
     compatibility: ShowcaseModelCompatibility | null;
@@ -195,7 +195,7 @@ export function ShowcaseGuideDialog({
             .finally(() => setAssetsLoading(false));
     }, [addNotice, assetItems.length, assetsLoading, slotPicker?.source, t]);
 
-    if (!topic || !showcaseCase || !isExecutableShowcaseCase(showcaseCase)) return null;
+    if (!topic || !showcaseCase) return null;
 
     const recipe = showcaseCase.recipe;
     const orderedSlots = [...recipe.inputSlots].sort((left, right) => left.workbenchOrder - right.workbenchOrder);

@@ -10,9 +10,9 @@ import {
 } from './showcase-navigation';
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
+import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import { isExecutableShowcaseCase, type ShowcaseCase, type ShowcaseCatalog, type ShowcaseTopic } from '@/lib/showcase';
 import { getShowcaseCases } from '@/lib/showcase-client';
-import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import {
     AlertTriangle,
     ArrowLeft,
@@ -63,7 +63,15 @@ function InformationPanel({
     );
 }
 
-export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatalog; topic: ShowcaseTopic }) {
+export function ShowcaseTopicDetail({
+    catalog,
+    topic,
+    returnHref = '/topics'
+}: {
+    catalog: ShowcaseCatalog;
+    topic: ShowcaseTopic;
+    returnHref?: string;
+}) {
     const { language, t } = useAppLanguage();
     const cases = getShowcaseCases(catalog, topic);
     const relatedTopics = (topic.relatedTopicIds ?? [])
@@ -74,7 +82,7 @@ export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatal
         <div className='space-y-5'>
             <nav aria-label={t('showcase.breadcrumb.aria')}>
                 <Button asChild variant='ghost' size='sm' className='-ml-2'>
-                    <Link href='/topics'>
+                    <Link href={returnHref}>
                         <ArrowLeft aria-hidden='true' />
                         {t('showcase.backToTopics')}
                     </Link>
@@ -176,6 +184,7 @@ export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatal
                             catalog={catalog}
                             topic={topic}
                             showcaseCase={showcaseCase}
+                            returnHref={returnHref}
                         />
                     ))}
                 </div>
@@ -210,7 +219,7 @@ export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatal
                         {relatedTopics.map((related) => (
                             <Link
                                 key={related.id}
-                                href={buildShowcaseTopicHref(related.slug)}
+                                href={buildShowcaseTopicHref(related.slug, returnHref)}
                                 className='app-panel-subtle border-panel-divider focus-visible:ring-ring/50 hover:bg-panel-ghost rounded-xl border p-3 transition-colors focus-visible:ring-2 focus-visible:outline-none'>
                                 <span className='text-foreground block text-sm font-medium'>
                                     {getLocalizedShowcaseText(related.title, language)}
@@ -230,29 +239,28 @@ export function ShowcaseTopicDetail({ catalog, topic }: { catalog: ShowcaseCatal
 export function ShowcaseCaseDetail({
     catalog,
     topic,
-    showcaseCase
+    showcaseCase,
+    returnHref = '/topics'
 }: {
     catalog: ShowcaseCatalog;
     topic: ShowcaseTopic;
     showcaseCase: ShowcaseCase;
+    returnHref?: string;
 }) {
     const { language, t } = useAppLanguage();
     const cases = getShowcaseCases(catalog, topic);
     const currentIndex = cases.findIndex((item) => item.id === showcaseCase.id);
     const nextCase = currentIndex >= 0 ? cases[currentIndex + 1] : undefined;
     const executable = isExecutableShowcaseCase(showcaseCase);
-    const output = executable ? showcaseCase.recipe.output : undefined;
-    const prompt = executable
-        ? getLocalizedShowcaseText(showcaseCase.recipe.prompt, language)
+    const recipe = executable ? showcaseCase.recipe : null;
+    const output = recipe?.output;
+    const prompt = recipe
+        ? getLocalizedShowcaseText(recipe.prompt, language)
         : showcaseCase.readOnlyPrompt
           ? getLocalizedShowcaseText(showcaseCase.readOnlyPrompt, language)
           : t('showcase.case.unsupportedDescription', { version: showcaseCase.unsupportedRecipeVersion ?? '?' });
-    const taskModeLabel = executable
-        ? t(
-              showcaseCase.recipe.taskMode === 'image-edit'
-                  ? 'showcase.recipe.imageEdit'
-                  : 'showcase.recipe.imageGenerate'
-          )
+    const taskModeLabel = recipe
+        ? t(recipe.taskMode === 'image-edit' ? 'showcase.recipe.imageEdit' : 'showcase.recipe.imageGenerate')
         : t('showcase.recipe.unknown');
     const [promptCopyStatus, setPromptCopyStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
 
@@ -266,7 +274,7 @@ export function ShowcaseCaseDetail({
         <div className='space-y-5'>
             <nav className='flex flex-wrap items-center gap-1' aria-label={t('showcase.breadcrumb.aria')}>
                 <Button asChild variant='ghost' size='sm' className='-ml-2'>
-                    <Link href='/topics'>
+                    <Link href={returnHref}>
                         <ArrowLeft aria-hidden='true' />
                         {t('showcase.backToTopics')}
                     </Link>
@@ -275,7 +283,7 @@ export function ShowcaseCaseDetail({
                     /
                 </span>
                 <Button asChild variant='ghost' size='sm'>
-                    <Link href={buildShowcaseTopicHref(topic.slug)}>
+                    <Link href={buildShowcaseTopicHref(topic.slug, returnHref)}>
                         {getLocalizedShowcaseText(topic.title, language)}
                     </Link>
                 </Button>
@@ -290,9 +298,9 @@ export function ShowcaseCaseDetail({
                                 {t(`showcase.difficulty.${showcaseCase.difficulty}`)}
                             </span>
                             <span className='text-on-panel-faint text-xs'>
-                                {executable
+                                {recipe
                                     ? t('showcase.case.referenceCount', {
-                                          count: showcaseCase.recipe.inputSlots.length
+                                          count: recipe.inputSlots.length
                                       })
                                     : t('showcase.case.inputRequirementsUnknown')}
                             </span>
@@ -312,7 +320,7 @@ export function ShowcaseCaseDetail({
                             <div className='app-panel-subtle rounded-lg border p-2.5'>
                                 <span className='text-on-panel-faint block'>{t('showcase.recipe.size')}</span>
                                 <strong className='text-foreground mt-1 block truncate font-medium'>
-                                    {!executable
+                                    {!recipe
                                         ? t('showcase.recipe.unknown')
                                         : (output?.size ?? t('showcase.recipe.auto'))}
                                 </strong>
@@ -320,7 +328,7 @@ export function ShowcaseCaseDetail({
                             <div className='app-panel-subtle col-span-2 rounded-lg border p-2.5 sm:col-span-1'>
                                 <span className='text-on-panel-faint block'>{t('showcase.recipe.quality')}</span>
                                 <strong className='text-foreground mt-1 block font-medium'>
-                                    {!executable
+                                    {!recipe
                                         ? t('showcase.recipe.unknown')
                                         : output?.quality
                                           ? t(`showcase.recipe.quality.${output.quality}`)
@@ -365,7 +373,7 @@ export function ShowcaseCaseDetail({
                                 {getLocalizedShowcaseText(showcaseCase.inputGuidance, language)}
                             </p>
                             <ol className='mt-4 space-y-2'>
-                                {[...showcaseCase.recipe.inputSlots]
+                                {[...(recipe?.inputSlots ?? [])]
                                     .sort((left, right) => left.workbenchOrder - right.workbenchOrder)
                                     .map((slot, index) => (
                                         <li key={slot.id} className='app-panel-subtle flex gap-3 rounded-xl border p-3'>
@@ -445,14 +453,14 @@ export function ShowcaseCaseDetail({
 
             <footer className='border-panel-divider flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between'>
                 <Button asChild variant='outline'>
-                    <Link href={buildShowcaseTopicHref(topic.slug)}>
+                    <Link href={buildShowcaseTopicHref(topic.slug, returnHref)}>
                         <ArrowLeft aria-hidden='true' />
                         {t('showcase.case.backToCases')}
                     </Link>
                 </Button>
                 {nextCase ? (
                     <Button asChild variant='ghost'>
-                        <Link href={buildShowcaseCaseHref(topic.slug, nextCase.slug)}>
+                        <Link href={buildShowcaseCaseHref(topic.slug, nextCase.slug, returnHref)}>
                             {t('showcase.case.next', { title: getLocalizedShowcaseText(nextCase.title, language) })}
                             <ArrowRight aria-hidden='true' />
                         </Link>

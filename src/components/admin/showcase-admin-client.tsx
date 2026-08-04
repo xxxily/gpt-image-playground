@@ -23,7 +23,7 @@ import { translateMessage } from '@/lib/i18n/translator';
 import type { ShowcaseAnalyticsSummary } from '@/lib/server/showcase/analytics';
 import type { ShowcaseManagedAsset } from '@/lib/server/showcase/media';
 import type { ShowcaseAdminTopic, ShowcasePublicationSummary, ShowcaseTopicDraft } from '@/lib/server/showcase/types';
-import type { ShowcaseCatalog, ShowcaseCase } from '@/lib/showcase';
+import type { ShowcaseCatalog, ShowcaseExecutableCase } from '@/lib/showcase';
 import {
     formatShowcaseRecipeOutputCustomSize,
     setShowcaseInputSlotCounts,
@@ -127,7 +127,7 @@ async function requestFormJson<T>(url: string, formData: FormData): Promise<T> {
 function updateCaseInDraft(
     draft: ShowcaseTopicDraft,
     caseId: string,
-    mutate: (showcaseCase: ShowcaseCase) => ShowcaseCase
+    mutate: (showcaseCase: ShowcaseExecutableCase) => ShowcaseExecutableCase
 ): ShowcaseTopicDraft {
     return {
         ...draft,
@@ -153,7 +153,7 @@ function addCatalogAsset(draft: ShowcaseTopicDraft, asset: ShowcaseManagedAsset[
     };
 }
 
-function setPreferredModelIds(showcaseCase: ShowcaseCase, values: string[]): ShowcaseCase {
+function setPreferredModelIds(showcaseCase: ShowcaseExecutableCase, values: string[]): ShowcaseExecutableCase {
     const recipe = { ...showcaseCase.recipe };
     if (values.length > 0) recipe.preferredModelIds = values;
     else delete recipe.preferredModelIds;

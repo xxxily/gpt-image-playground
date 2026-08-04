@@ -7,7 +7,7 @@ import {
     normalizeShowcaseTopic,
     SHOWCASE_CATALOG_SCHEMA_VERSION
 } from './showcase';
-import type { ShowcaseAsset, ShowcaseCase, ShowcaseCatalog, ShowcaseTopic } from './showcase';
+import type { ShowcaseAsset, ShowcaseCatalog, ShowcaseExecutableCase, ShowcaseTopic } from './showcase';
 import type { ShowcaseRecipeV1 } from './showcase-recipe';
 import { describe, expect, it } from 'vitest';
 
@@ -53,7 +53,7 @@ function placeholderAsset(id: string): ShowcaseAsset {
     };
 }
 
-function showcaseCase(overrides: Partial<ShowcaseCase> = {}): ShowcaseCase {
+function showcaseCase(overrides: Partial<ShowcaseExecutableCase> = {}): ShowcaseExecutableCase {
     return {
         id: 'case-one',
         topicId: 'topic-one',
@@ -250,7 +250,10 @@ describe('normalizeShowcaseCatalog', () => {
         expect(normalizeShowcaseCatalog({ ...catalog(), providerBaseUrl: 'https://example.com' })).toBeNull();
 
         const nestedUnknown = clone(catalog());
-        nestedUnknown.cases[0].recipe.output = { autostart: true } as never;
+        const nestedCase = nestedUnknown.cases[0];
+        if (nestedCase && isExecutableShowcaseCase(nestedCase)) {
+            nestedCase.recipe.output = { autostart: true } as never;
+        }
         expect(normalizeShowcaseCatalog(nestedUnknown)).toBeNull();
 
         const dangerous = clone(catalog());
@@ -351,10 +354,7 @@ describe('normalizeShowcaseCatalog', () => {
             inputAssetIds: Array.from({ length: 17 }, (_, index) => `input-${index}`),
             recipe: { version: 2, prompt: localized('未来提示词', 'Future prompt') }
         };
-        const assets = [
-            ...catalog().assets,
-            ...futureCase.inputAssetIds.map((id) => placeholderAsset(id))
-        ];
+        const assets = [...catalog().assets, ...futureCase.inputAssetIds.map((id) => placeholderAsset(id))];
         const normalized = normalizeShowcaseCatalog(
             catalog({
                 topics: [topic({ caseIds: ['case-one', 'case-future'] })],
@@ -368,7 +368,7 @@ describe('normalizeShowcaseCatalog', () => {
         expect(normalized?.cases.map((item) => item.id)).toEqual(['case-one', 'case-future']);
         expect(normalized?.topics[0]?.caseIds).toEqual(['case-one', 'case-future']);
         expect(normalizedFutureCase?.inputAssetIds).toHaveLength(17);
-        expect(normalizedFutureCase?.recipe.inputSlots).toEqual([]);
+        expect(normalizedFutureCase).not.toHaveProperty('recipe');
         expect(normalizedFutureCase && isExecutableShowcaseCase(normalizedFutureCase)).toBe(false);
         expect(normalizeShowcaseCatalog(normalized, { allowUnsupportedRecipeVersions: true })).toEqual(normalized);
     });

@@ -1,5 +1,11 @@
 import { SHOWCASE_CATALOG_SCHEMA_VERSION } from './showcase';
-import type { ShowcaseAsset, ShowcaseCase, ShowcaseCatalog, ShowcaseTopic } from './showcase';
+import type {
+    ShowcaseAsset,
+    ShowcaseCase,
+    ShowcaseExecutableCatalog,
+    ShowcaseExecutableCase,
+    ShowcaseTopic
+} from './showcase';
 import { SHOWCASE_RECIPE_VERSION } from './showcase-recipe';
 import type {
     ShowcaseInputRole,
@@ -195,7 +201,7 @@ function makeCase(
     caseSpec: DefaultCaseSpec,
     caseIndex: number,
     assets: ShowcaseAsset[]
-): ShowcaseCase {
+): ShowcaseExecutableCase {
     const id = `${topic.id}-${caseSpec.slug}`;
     const palette = PLACEHOLDER_PALETTES[topicIndex % PLACEHOLDER_PALETTES.length];
     const inputAssetIds = caseSpec.slots.map((slot, slotIndex) => {
@@ -743,9 +749,9 @@ const DEFAULT_TOPIC_SPECS: DefaultTopicSpec[] = [
     }
 ];
 
-function buildDefaultShowcaseCatalog(): ShowcaseCatalog {
+function buildDefaultShowcaseCatalog(): ShowcaseExecutableCatalog {
     const assets: ShowcaseAsset[] = [];
-    const cases: ShowcaseCase[] = [];
+    const cases: ShowcaseExecutableCase[] = [];
     const topics: ShowcaseTopic[] = DEFAULT_TOPIC_SPECS.map((topicSpec, topicIndex) => {
         const topicCases = topicSpec.cases.map((caseSpec, caseIndex) => {
             const showcaseCase = makeCase(topicSpec, topicIndex, caseSpec, caseIndex, assets);
@@ -820,4 +826,4 @@ function buildDefaultShowcaseCatalog(): ShowcaseCatalog {
     };
 }
 
-export const DEFAULT_SHOWCASE_CATALOG: ShowcaseCatalog = buildDefaultShowcaseCatalog();
+export const DEFAULT_SHOWCASE_CATALOG: ShowcaseExecutableCatalog = buildDefaultShowcaseCatalog();

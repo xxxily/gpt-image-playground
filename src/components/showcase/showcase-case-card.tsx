@@ -12,15 +12,17 @@ type ShowcaseCaseCardProps = {
     catalog: ShowcaseCatalog;
     topic: ShowcaseTopic;
     showcaseCase: ShowcaseCase;
+    returnHref?: string;
 };
 
-export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseCardProps) {
+export function ShowcaseCaseCard({ catalog, topic, showcaseCase, returnHref }: ShowcaseCaseCardProps) {
     const { language, t } = useAppLanguage();
     const title = getLocalizedShowcaseText(showcaseCase.title, language);
     const executable = isExecutableShowcaseCase(showcaseCase);
+    const recipe = executable ? showcaseCase.recipe : null;
 
     return (
-        <article className='app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-2xl border transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/45 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 motion-reduce:transform-none'>
+        <article className='app-panel-subtle focus-within:border-primary/45 flex min-w-0 flex-col overflow-hidden rounded-2xl border transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 motion-reduce:transform-none'>
             <div className='p-3 pb-0'>
                 <ShowcaseComparison catalog={catalog} showcaseCase={showcaseCase} compact />
             </div>
@@ -31,15 +33,15 @@ export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseC
                         {t(`showcase.difficulty.${showcaseCase.difficulty}`)}
                     </span>
                     <span className='text-on-panel-faint text-xs'>
-                        {executable
-                            ? t('showcase.case.referenceCount', { count: showcaseCase.recipe.inputSlots.length })
+                        {recipe
+                            ? t('showcase.case.referenceCount', { count: recipe.inputSlots.length })
                             : t('showcase.case.updateRequired')}
                     </span>
                 </div>
 
                 <div className='text-on-panel-faint flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
-                    {isExecutableShowcaseCase(showcaseCase)
-                        ? showcaseCase.recipe.inputSlots
+                    {recipe
+                        ? recipe.inputSlots
                               .slice()
                               .sort((left, right) => left.workbenchOrder - right.workbenchOrder)
                               .map((slot) => getLocalizedShowcaseText(slot.label, language))
@@ -56,7 +58,7 @@ export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseC
 
                 <div className='mt-auto flex flex-col gap-2 pt-1 sm:flex-row'>
                     <Button asChild variant='outline' size='sm' className='min-w-0 flex-1'>
-                        <Link href={buildShowcaseCaseHref(topic.slug, showcaseCase.slug)}>
+                        <Link href={buildShowcaseCaseHref(topic.slug, showcaseCase.slug, returnHref)}>
                             {t('showcase.case.viewDetails')}
                             <ArrowRight aria-hidden='true' />
                         </Link>

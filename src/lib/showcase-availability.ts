@@ -4,6 +4,7 @@ import { getImageReferenceConstraints } from './image-reference-limits';
 import { getAllImageModels, getImageModel } from './model-registry';
 import { getProviderCredentialConfig } from './provider-config';
 import { getProviderInstance } from './provider-instances';
+import { isExecutableShowcaseCase } from './showcase';
 import type { ShowcaseCatalog, ShowcaseTopic } from './showcase';
 import { getShowcaseCases } from './showcase-client';
 import { evaluateShowcaseModelCompatibility } from './showcase-recipe';
@@ -26,8 +27,11 @@ function resolveProviderInstanceId(config: AppConfig, modelId: string, providerI
 function hasCredentials(config: AppConfig, modelId: string, providerInstanceId?: string): boolean {
     const model = getImageModel(modelId, config.customImageModels);
     return Boolean(
-        getProviderCredentialConfig(config, model.provider, resolveProviderInstanceId(config, modelId, providerInstanceId))
-            .apiKey
+        getProviderCredentialConfig(
+            config,
+            model.provider,
+            resolveProviderInstanceId(config, modelId, providerInstanceId)
+        ).apiKey
     );
 }
 
@@ -39,23 +43,29 @@ function hasAnyCredentials(config: AppConfig, modelId: string): boolean {
         .some((instance) => Boolean(getProviderCredentialConfig(config, model.provider, instance.id).apiKey));
 }
 
-function isRecipeCompatible(config: AppConfig, modelId: string, catalog: ShowcaseCatalog, topic: ShowcaseTopic): boolean {
+function isRecipeCompatible(
+    config: AppConfig,
+    modelId: string,
+    catalog: ShowcaseCatalog,
+    topic: ShowcaseTopic
+): boolean {
     const model = getImageModel(modelId, config.customImageModels);
-    return getShowcaseCases(catalog, topic).some((showcaseCase) => {
-        if (showcaseCase.unsupportedRecipeVersion !== undefined) return false;
-        const constraints = getImageReferenceConstraints(model.id, {
-            customImageModels: config.customImageModels,
-            outputCount: showcaseCase.recipe.output?.n ?? 1
+    return getShowcaseCases(catalog, topic)
+        .filter(isExecutableShowcaseCase)
+        .some((showcaseCase) => {
+            const constraints = getImageReferenceConstraints(model.id, {
+                customImageModels: config.customImageModels,
+                outputCount: showcaseCase.recipe.output?.n ?? 1
+            });
+            return evaluateShowcaseModelCompatibility(showcaseCase.recipe, {
+                id: model.id,
+                label: model.label,
+                supportsEditing: model.supportsEditing,
+                supportsMask: model.supportsMask,
+                supportsCustomSize: model.supportsCustomSize,
+                maxReferenceImages: constraints.maxImages
+            }).compatible;
         });
-        return evaluateShowcaseModelCompatibility(showcaseCase.recipe, {
-            id: model.id,
-            label: model.label,
-            supportsEditing: model.supportsEditing,
-            supportsMask: model.supportsMask,
-            supportsCustomSize: model.supportsCustomSize,
-            maxReferenceImages: constraints.maxImages
-        }).compatible;
-    });
 }
 
 export function getShowcaseTopicAvailability(
@@ -64,9 +74,7 @@ export function getShowcaseTopicAvailability(
     config: AppConfig,
     preferences: ImageFormPreferences
 ): ShowcaseTopicAvailability {
-    const executableCases = getShowcaseCases(catalog, topic).filter(
-        (showcaseCase) => showcaseCase.unsupportedRecipeVersion === undefined
-    );
+    const executableCases = getShowcaseCases(catalog, topic).filter(isExecutableShowcaseCase);
     if (executableCases.length === 0) return 'read-only';
 
     const currentModelId = String(preferences.model);
@@ -85,6 +93,9 @@ export function getShowcaseTopicAvailability(
         : 'needs-compatible-model';
 }
 
-export function readShowcaseTopicAvailability(catalog: ShowcaseCatalog, topic: ShowcaseTopic): ShowcaseTopicAvailability {
+export function readShowcaseTopicAvailability(
+    catalog: ShowcaseCatalog,
+    topic: ShowcaseTopic
+): ShowcaseTopicAvailability {
     return getShowcaseTopicAvailability(catalog, topic, loadConfig(), loadImageFormPreferences());
 }

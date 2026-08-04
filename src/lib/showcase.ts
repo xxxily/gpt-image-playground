@@ -47,7 +47,7 @@ export type ShowcaseFaqItem = {
     answer: ShowcaseLocalizedText;
 };
 
-export type ShowcaseCase = {
+export type ShowcaseCaseBase = {
     id: string;
     topicId: string;
     slug: string;
@@ -61,10 +61,21 @@ export type ShowcaseCase = {
     coverAssetId: string;
     inputAssetIds: string[];
     outputAssetIds: string[];
+};
+
+export type ShowcaseExecutableCase = ShowcaseCaseBase & {
     recipe: ShowcaseRecipeV1;
-    unsupportedRecipeVersion?: number;
+    unsupportedRecipeVersion?: never;
+    readOnlyPrompt?: never;
+};
+
+export type ShowcaseReadOnlyCase = ShowcaseCaseBase & {
+    recipe?: never;
+    unsupportedRecipeVersion: number;
     readOnlyPrompt?: ShowcaseLocalizedText;
 };
+
+export type ShowcaseCase = ShowcaseExecutableCase | ShowcaseReadOnlyCase;
 
 export type ShowcaseTopic = {
     id: string;
@@ -98,6 +109,10 @@ export type ShowcaseCatalog = {
     topics: ShowcaseTopic[];
     cases: ShowcaseCase[];
     assets: ShowcaseAsset[];
+};
+
+export type ShowcaseExecutableCatalog = Omit<ShowcaseCatalog, 'cases'> & {
+    cases: ShowcaseExecutableCase[];
 };
 
 export type NormalizeShowcaseCatalogOptions = {
@@ -436,10 +451,7 @@ export function normalizeShowcaseAsset(value: unknown): ShowcaseAsset | null {
     return null;
 }
 
-export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
-    const record = asStrictRecord(value, CASE_KEYS);
-    if (!record || record.unsupportedRecipeVersion !== undefined || record.readOnlyPrompt !== undefined) return null;
-
+function normalizeShowcaseCaseBase(record: UnknownRecord, maximumInputAssets: number): ShowcaseCaseBase | null {
     const id = normalizeIdentifier(record.id);
     const topicId = normalizeIdentifier(record.topicId);
     const slug = normalizeIdentifier(record.slug);
@@ -451,9 +463,8 @@ export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
     const difficulty = normalizeEnum(record.difficulty, CASE_DIFFICULTIES);
     const sortOrder = normalizeInteger(record.sortOrder, 0, 1_000_000);
     const coverAssetId = normalizeIdentifier(record.coverAssetId);
-    const inputAssetIds = normalizeIdArray(record.inputAssetIds, 0, 16);
+    const inputAssetIds = normalizeIdArray(record.inputAssetIds, 0, maximumInputAssets);
     const outputAssetIds = normalizeIdArray(record.outputAssetIds, 1, 32);
-    const recipe = normalizeShowcaseRecipe(record.recipe);
 
     if (
         !id ||
@@ -468,13 +479,11 @@ export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
         sortOrder === null ||
         !coverAssetId ||
         !inputAssetIds ||
-        !outputAssetIds ||
-        !recipe
+        !outputAssetIds
     ) {
         return null;
     }
 
-    if (recipe.taskMode === 'image-edit' && inputAssetIds.length === 0) return null;
     if (inputAssetIds.some((assetId) => outputAssetIds.includes(assetId))) return null;
 
     return {
@@ -490,9 +499,20 @@ export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
         sortOrder,
         coverAssetId,
         inputAssetIds,
-        outputAssetIds,
-        recipe
+        outputAssetIds
     };
+}
+
+export function normalizeShowcaseCase(value: unknown): ShowcaseExecutableCase | null {
+    const record = asStrictRecord(value, CASE_KEYS);
+    if (!record || record.unsupportedRecipeVersion !== undefined || record.readOnlyPrompt !== undefined) return null;
+
+    const base = normalizeShowcaseCaseBase(record, 16);
+    const recipe = normalizeShowcaseRecipe(record.recipe);
+    if (!base || !recipe) return null;
+    if (recipe.taskMode === 'image-edit' && base.inputAssetIds.length === 0) return null;
+
+    return { ...base, recipe };
 }
 
 function peekShowcaseRecipeVersion(value: unknown): number | null {
@@ -510,24 +530,23 @@ function normalizeShowcaseCaseForDisplay(value: unknown): ShowcaseCase | null {
         const existing = value as UnknownRecord;
         const markedVersion = normalizeInteger(existing.unsupportedRecipeVersion, 2, Number.MAX_SAFE_INTEGER);
         if (markedVersion) {
-            const inputAssetIds = normalizeIdArray(existing.inputAssetIds, 0, 32);
-            if (!inputAssetIds) return null;
-            const candidateRecord = { ...existing };
-            delete candidateRecord.unsupportedRecipeVersion;
-            delete candidateRecord.readOnlyPrompt;
-            const normalized = normalizeShowcaseCase({
-                ...candidateRecord,
-                inputAssetIds: inputAssetIds.slice(0, 16)
-            });
-            const readOnlyPrompt = normalizeShowcaseReadOnlyPrompt(existing.readOnlyPrompt);
-            return normalized
-                ? {
-                      ...normalized,
-                      inputAssetIds,
-                      unsupportedRecipeVersion: markedVersion,
-                      ...(readOnlyPrompt ? { readOnlyPrompt } : {})
-                  }
-                : null;
+            const record = asStrictRecord(existing, CASE_KEYS);
+            if (!record) return null;
+            const base = normalizeShowcaseCaseBase(record, 32);
+            if (!base) return null;
+            const recipeVersion = peekShowcaseRecipeVersion(record.recipe);
+            if (recipeVersion !== null && recipeVersion > 1 && recipeVersion !== markedVersion) return null;
+            const readOnlyPrompt =
+                record.readOnlyPrompt === undefined
+                    ? typeof record.recipe === 'object' && record.recipe !== null && !Array.isArray(record.recipe)
+                        ? normalizeShowcaseReadOnlyPrompt((record.recipe as Record<string, unknown>).prompt)
+                        : null
+                    : normalizeShowcaseReadOnlyPrompt(record.readOnlyPrompt);
+            return {
+                ...base,
+                unsupportedRecipeVersion: markedVersion,
+                ...(readOnlyPrompt ? { readOnlyPrompt } : {})
+            };
         }
     }
     const supported = normalizeShowcaseCase(value);
@@ -548,42 +567,17 @@ function normalizeShowcaseCaseForDisplay(value: unknown): ShowcaseCase | null {
                 : null
             : normalizeShowcaseReadOnlyPrompt(record.readOnlyPrompt);
 
-    const inputAssetIds = normalizeIdArray(record.inputAssetIds, 0, 32);
-    if (!inputAssetIds) return null;
-    const taskMode = 'image-generate';
-    const fallbackRecipe: ShowcaseRecipeV1 = {
-        version: 1,
-        taskMode,
-        promptStrategy: 'replace',
-        prompt: {
-            'zh-CN': '此案例使用较新的配方版本，请升级客户端后再载入工作台。',
-            'en-US': 'This case uses a newer recipe version. Upgrade the client before loading it into the workbench.'
-        },
-        inputSlots: [],
-        capabilityRequirements: {
-            supportedTaskModes: [taskMode]
-        }
+    const base = normalizeShowcaseCaseBase(record, 32);
+    if (!base) return null;
+    return {
+        ...base,
+        unsupportedRecipeVersion: unsupportedVersion,
+        ...(readOnlyPrompt ? { readOnlyPrompt } : {})
     };
-    const candidateRecord = { ...record };
-    delete candidateRecord.unsupportedRecipeVersion;
-    delete candidateRecord.readOnlyPrompt;
-    const normalized = normalizeShowcaseCase({
-        ...candidateRecord,
-        inputAssetIds: inputAssetIds.slice(0, 16),
-        recipe: fallbackRecipe
-    });
-    return normalized
-        ? {
-              ...normalized,
-              inputAssetIds,
-              unsupportedRecipeVersion: unsupportedVersion,
-              ...(readOnlyPrompt ? { readOnlyPrompt } : {})
-          }
-        : null;
 }
 
-export function isExecutableShowcaseCase(showcaseCase: ShowcaseCase): boolean {
-    return showcaseCase.unsupportedRecipeVersion === undefined;
+export function isExecutableShowcaseCase(showcaseCase: ShowcaseCase): showcaseCase is ShowcaseExecutableCase {
+    return showcaseCase.unsupportedRecipeVersion === undefined && 'recipe' in showcaseCase;
 }
 
 export function normalizeShowcaseTopic(
@@ -641,7 +635,8 @@ export function normalizeShowcaseTopic(
         !rawTags ||
         rawTags.length === 0 ||
         rawTags.length > 16 ||
-        (record.categories !== undefined && (!rawCategories || rawCategories.length === 0 || rawCategories.length > 12)) ||
+        (record.categories !== undefined &&
+            (!rawCategories || rawCategories.length === 0 || rawCategories.length > 12)) ||
         (record.publishedAt !== undefined && publishedAt === null)
     ) {
         return null;
@@ -797,8 +792,7 @@ export function normalizeShowcaseCatalog(
     const contentNotice = normalizeLocalizedText(record.contentNotice, 1_000);
     const rawTopics = normalizeCollection(
         record.topics,
-        (topic) =>
-            normalizeShowcaseTopic(topic, { allowExtendedTopicMetadata: options.allowExtendedTopicMetadata }),
+        (topic) => normalizeShowcaseTopic(topic, { allowExtendedTopicMetadata: options.allowExtendedTopicMetadata }),
         256
     );
     const displayCases = options.allowUnsupportedRecipeVersions ? normalizeShowcaseCasesForDisplay(record.cases) : null;

@@ -93,6 +93,7 @@ describe('showcase public catalog wire format', () => {
             unsupportedRecipeVersion: 2,
             readOnlyPrompt: localized('未来版本提示词', 'Future-version prompt')
         });
+        expect(parsed?.cases[0]).not.toHaveProperty('recipe');
         expect(JSON.stringify(parsed?.cases[0])).not.toContain('unsafeAction');
         expect(parsed?.cases.slice(1).every((candidate) => candidate.unsupportedRecipeVersion === undefined)).toBe(
             true
@@ -125,5 +126,6 @@ describe('showcase public catalog wire format', () => {
         expect(extendedWire.cases.find((candidate) => candidate.id === futureCase.id)).toMatchObject({
             unsupportedRecipeVersion: 2
         });
+        expect(extendedWire.cases.find((candidate) => candidate.id === futureCase.id)).not.toHaveProperty('recipe');
     });
 });

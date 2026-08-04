@@ -3,7 +3,9 @@
 import { ShowcaseCaseDetail, ShowcaseTopicDetail } from './showcase-detail';
 import {
     buildShowcaseDirectoryHref,
+    buildShowcaseTopicHref,
     getLocalizedShowcaseText,
+    normalizeShowcaseDirectoryReturnHref,
     type ShowcaseDirectoryInputFilter,
     type ShowcaseDirectorySort
 } from './showcase-navigation';
@@ -52,23 +54,35 @@ export function ShowcaseTopicsPage() {
     const { language, t } = useAppLanguage();
     const router = useRouter();
     const searchParams = useSearchParams();
-    const topicSlug = searchParams.get('topic');
-    const caseSlug = searchParams.get('case');
+    // `/topics` is a static export. The server render cannot observe query
+    // parameters, while the browser can observe them during its first render.
+    // Keep that first render identical on both sides, then consume the deep
+    // link after hydration. This prevents React #418 while preserving direct
+    // topic/case links for Web, Tauri, and Android.
+    const [isHydrated, setIsHydrated] = React.useState(false);
+    React.useEffect(() => {
+        setIsHydrated(true);
+    }, []);
+
+    const activeSearchParams = isHydrated ? searchParams : null;
+    const topicSlug = activeSearchParams?.get('topic') ?? null;
+    const caseSlug = activeSearchParams?.get('case') ?? null;
     const state = useShowcaseCatalog();
 
     const topic = topicSlug ? getShowcaseTopic(state.catalog, topicSlug) : null;
     const showcaseCase = topic && caseSlug ? getShowcaseCase(state.catalog, topic, caseSlug) : null;
-    const queryParam = searchParams.get('q')?.trim() ?? '';
-    const inputParam = searchParams.get('input');
+    const queryParam = activeSearchParams?.get('q')?.trim() ?? '';
+    const inputParam = activeSearchParams?.get('input');
     const inputFilter: ShowcaseDirectoryInputFilter = ['none', 'single', 'multiple', 'mask'].includes(inputParam ?? '')
         ? (inputParam as ShowcaseDirectoryInputFilter)
         : 'all';
-    const tagFilter = searchParams.get('tag')?.trim() ?? '';
-    const categoryFilter = searchParams.get('category')?.trim() ?? '';
-    const sortParam = searchParams.get('sort');
+    const tagFilter = activeSearchParams?.get('tag')?.trim() ?? '';
+    const categoryFilter = activeSearchParams?.get('category')?.trim() ?? '';
+    const sortParam = activeSearchParams?.get('sort');
     const sort: ShowcaseDirectorySort = ['recommended', 'latest', 'easy'].includes(sortParam ?? '')
         ? (sortParam as ShowcaseDirectorySort)
         : 'recommended';
+    const detailReturnHref = normalizeShowcaseDirectoryReturnHref(activeSearchParams?.get('return'));
     const [queryDraft, setQueryDraft] = React.useState(queryParam);
     const trackedOpensRef = React.useRef(new Set<string>());
     const pendingQueryParamRef = React.useRef<string | null>(null);
@@ -253,6 +267,14 @@ export function ShowcaseTopicsPage() {
         updateFilters({ query: '', input: 'all', tag: '', category: '', sort: 'recommended' });
     }, [updateFilters]);
 
+    const directoryReturnHref = buildShowcaseDirectoryHref({
+        query: queryDraft,
+        input: inputFilter,
+        tag: tagFilter,
+        category: categoryFilter,
+        sort
+    });
+
     if (state.isLoading && ((topicSlug && !topic) || (topic && caseSlug && !showcaseCase))) {
         return (
             <main id='main-content' className='mx-auto min-h-dvh w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8'>
@@ -281,7 +303,7 @@ export function ShowcaseTopicsPage() {
                         description={t('showcase.page.notFoundDescription')}
                         action={
                             <Button asChild variant='outline'>
-                                <Link href='/topics'>{t('showcase.page.viewAllTopics')}</Link>
+                                <Link href={detailReturnHref}>{t('showcase.page.viewAllTopics')}</Link>
                             </Button>
                         }
                     />
@@ -301,7 +323,7 @@ export function ShowcaseTopicsPage() {
                         description={t('showcase.page.caseNotFoundDescription')}
                         action={
                             <Button asChild variant='outline'>
-                                <Link href={`?topic=${encodeURIComponent(topic.slug)}`}>
+                                <Link href={buildShowcaseTopicHref(topic.slug, detailReturnHref)}>
                                     {t('showcase.page.backToTopic')}
                                 </Link>
                             </Button>
@@ -331,9 +353,14 @@ export function ShowcaseTopicsPage() {
             </div>
 
             {showcaseCase && topic ? (
-                <ShowcaseCaseDetail catalog={state.catalog} topic={topic} showcaseCase={showcaseCase} />
+                <ShowcaseCaseDetail
+                    catalog={state.catalog}
+                    topic={topic}
+                    showcaseCase={showcaseCase}
+                    returnHref={detailReturnHref}
+                />
             ) : topic ? (
-                <ShowcaseTopicDetail catalog={state.catalog} topic={topic} />
+                <ShowcaseTopicDetail catalog={state.catalog} topic={topic} returnHref={detailReturnHref} />
             ) : (
                 <section aria-labelledby='showcase-topic-directory'>
                     <div className='mb-3 flex items-end justify-between gap-3'>
@@ -473,7 +500,12 @@ export function ShowcaseTopicsPage() {
                     {topics.length > 0 ? (
                         <div className='grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
                             {topics.map((item) => (
-                                <ShowcaseTopicCard key={item.id} catalog={state.catalog} topic={item} />
+                                <ShowcaseTopicCard
+                                    key={item.id}
+                                    catalog={state.catalog}
+                                    topic={item}
+                                    returnHref={directoryReturnHref}
+                                />
                             ))}
                         </div>
                     ) : (

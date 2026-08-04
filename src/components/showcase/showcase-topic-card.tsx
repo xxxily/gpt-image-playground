@@ -18,16 +18,19 @@ export type ShowcaseTopicCardProps = {
     catalog: ShowcaseCatalog;
     topic: ShowcaseTopic;
     compact?: boolean;
+    returnHref?: string;
 };
 
-export function ShowcaseTopicCard({ catalog, topic, compact = false }: ShowcaseTopicCardProps) {
+export function ShowcaseTopicCard({ catalog, topic, compact = false, returnHref }: ShowcaseTopicCardProps) {
     const { language, t } = useAppLanguage();
     const cases = getShowcaseCases(catalog, topic);
     const cover = getShowcaseAsset(catalog, topic.coverAssetId);
     const title = getLocalizedShowcaseText(topic.title, language);
     const summary = getLocalizedShowcaseText(topic.summary, language);
     const inputSummary = getShowcaseTopicInputSummary(catalog, topic);
-    const [availability, setAvailability] = React.useState<ReturnType<typeof readShowcaseTopicAvailability> | null>(null);
+    const [availability, setAvailability] = React.useState<ReturnType<typeof readShowcaseTopicAvailability> | null>(
+        null
+    );
     const refreshAvailability = React.useCallback(() => {
         setAvailability(readShowcaseTopicAvailability(catalog, topic));
     }, [catalog, topic]);
@@ -54,17 +57,16 @@ export function ShowcaseTopicCard({ catalog, topic, compact = false }: ShowcaseT
         };
     }, [refreshAvailability]);
 
-    const inputLabel =
-        !inputSummary.inputRequirementsKnown
-            ? t('showcase.topic.input.unknown')
-            : inputSummary.maximumInputs === 0
-            ? t('showcase.topic.input.none')
-            : inputSummary.minimumInputs === inputSummary.maximumInputs
-              ? t('showcase.topic.input.exact', { count: inputSummary.maximumInputs })
-              : t('showcase.topic.input.range', {
-                    minimum: inputSummary.minimumInputs,
-                    maximum: inputSummary.maximumInputs
-                });
+    const inputLabel = !inputSummary.inputRequirementsKnown
+        ? t('showcase.topic.input.unknown')
+        : inputSummary.maximumInputs === 0
+          ? t('showcase.topic.input.none')
+          : inputSummary.minimumInputs === inputSummary.maximumInputs
+            ? t('showcase.topic.input.exact', { count: inputSummary.maximumInputs })
+            : t('showcase.topic.input.range', {
+                  minimum: inputSummary.minimumInputs,
+                  maximum: inputSummary.maximumInputs
+              });
     const availabilityIcon =
         availability === 'ready' ? (
             <CheckCircle2 className='size-3.5' aria-hidden='true' />
@@ -75,9 +77,9 @@ export function ShowcaseTopicCard({ catalog, topic, compact = false }: ShowcaseT
         );
 
     return (
-        <article className='app-panel-subtle group flex min-w-0 flex-col overflow-hidden rounded-2xl border transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/45 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 motion-reduce:transform-none'>
+        <article className='app-panel-subtle group focus-within:border-primary/45 flex min-w-0 flex-col overflow-hidden rounded-2xl border transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 motion-reduce:transform-none'>
             <Link
-                href={buildShowcaseTopicHref(topic.slug)}
+                href={buildShowcaseTopicHref(topic.slug, returnHref)}
                 className='focus-visible:ring-ring/50 block min-w-0 outline-none focus-visible:ring-[3px]'
                 aria-label={t('showcase.topic.openAria', { title })}>
                 <ShowcaseMedia
@@ -127,7 +129,7 @@ export function ShowcaseTopicCard({ catalog, topic, compact = false }: ShowcaseT
                 </div>
 
                 <Button asChild variant='ghost' size='sm' className='mt-auto w-full justify-between px-2 text-left'>
-                    <Link href={buildShowcaseTopicHref(topic.slug)}>
+                    <Link href={buildShowcaseTopicHref(topic.slug, returnHref)}>
                         {t('showcase.topic.browseCases')}
                         <ArrowRight aria-hidden='true' />
                     </Link>

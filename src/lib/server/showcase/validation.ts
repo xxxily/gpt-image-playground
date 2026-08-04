@@ -1,6 +1,6 @@
 import type { ShowcaseTopicDraft } from './types';
-import { SHOWCASE_CATALOG_SCHEMA_VERSION, normalizeShowcaseCatalog } from '@/lib/showcase';
-import type { ShowcaseCatalog } from '@/lib/showcase';
+import { SHOWCASE_CATALOG_SCHEMA_VERSION, isExecutableShowcaseCase, normalizeShowcaseCatalog } from '@/lib/showcase';
+import type { ShowcaseExecutableCatalog } from '@/lib/showcase';
 
 const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
 
@@ -40,14 +40,16 @@ export function normalizeShowcaseTopicDraft(value: unknown): ShowcaseTopicDraft 
 
     const topic = candidate.topics[0];
     if (!topic || candidate.cases.some((showcaseCase) => showcaseCase.topicId !== topic.id)) return null;
-    return { topic, cases: candidate.cases, assets: candidate.assets };
+    const cases = candidate.cases.filter(isExecutableShowcaseCase);
+    if (cases.length !== candidate.cases.length) return null;
+    return { topic, cases, assets: candidate.assets };
 }
 
 export function buildCatalogFromTopicDraft(
     draft: ShowcaseTopicDraft,
     catalogRevision: string,
     generatedAt = Date.now()
-): ShowcaseCatalog {
+): ShowcaseExecutableCatalog {
     const catalog = normalizeShowcaseCatalog(
         {
             schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
@@ -60,6 +62,8 @@ export function buildCatalogFromTopicDraft(
         },
         { allowDanglingRelatedTopicIds: true, allowExtendedTopicMetadata: true }
     );
-    if (!catalog) throw new Error('专题草稿不完整或包含不安全内容。');
-    return catalog;
+    if (!catalog || catalog.cases.some((showcaseCase) => !isExecutableShowcaseCase(showcaseCase))) {
+        throw new Error('专题草稿不完整或包含不安全内容。');
+    }
+    return { ...catalog, cases: catalog.cases.filter(isExecutableShowcaseCase) };
 }

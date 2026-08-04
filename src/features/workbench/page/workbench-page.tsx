@@ -157,7 +157,7 @@ import {
     resolveClientDirectLinkConnectionMode,
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
-import type { ShowcaseAttribution, ShowcaseCatalog, ShowcaseCase, ShowcaseTopic } from '@/lib/showcase';
+import type { ShowcaseAttribution, ShowcaseCatalog, ShowcaseExecutableCase, ShowcaseTopic } from '@/lib/showcase';
 import { isExecutableShowcaseCase } from '@/lib/showcase';
 import { trackShowcaseAnalyticsEvent } from '@/lib/showcase-analytics-client';
 import { getShowcaseCase, getShowcaseTopic, loadShowcaseCatalog } from '@/lib/showcase-client';
@@ -472,7 +472,7 @@ export default function HomePage() {
     const [creativeWorkspacesOpen, setCreativeWorkspacesOpen] = React.useState(false);
     const [showcaseCatalog, setShowcaseCatalog] = React.useState<ShowcaseCatalog | null>(null);
     const [showcaseGuideTopic, setShowcaseGuideTopic] = React.useState<ShowcaseTopic | null>(null);
-    const [showcaseGuideCase, setShowcaseGuideCase] = React.useState<ShowcaseCase | null>(null);
+    const [showcaseGuideCase, setShowcaseGuideCase] = React.useState<ShowcaseExecutableCase | null>(null);
     const [showcaseGuideOpen, setShowcaseGuideOpen] = React.useState(false);
     const [showcaseAttribution, setShowcaseAttribution] = React.useState<{
         metadata: ShowcaseAttribution;

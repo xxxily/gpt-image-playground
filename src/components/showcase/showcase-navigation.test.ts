@@ -3,7 +3,8 @@ import {
     buildShowcaseDirectoryHref,
     buildShowcaseTopicHref,
     buildShowcaseWorkbenchHref,
-    getLocalizedShowcaseText
+    getLocalizedShowcaseText,
+    normalizeShowcaseDirectoryReturnHref
 } from './showcase-navigation';
 import { describe, expect, it } from 'vitest';
 
@@ -13,6 +14,36 @@ describe('showcase navigation', () => {
         expect(buildShowcaseCaseHref('old-photo-restoration', 'scratch-removal')).toBe(
             '/topics?topic=old-photo-restoration&case=scratch-removal'
         );
+    });
+
+    it('keeps a normalized directory return link across topic and case navigation', () => {
+        const returnHref = '/topics?q=%E7%85%A7%E7%89%87&input=single&tag=%E6%96%B0%E6%89%8B&sort=easy';
+        const topicHref = new URL(buildShowcaseTopicHref('old-photo-restoration', returnHref), 'https://example.com');
+        const caseHref = new URL(
+            buildShowcaseCaseHref('old-photo-restoration', 'scratch-removal', returnHref),
+            'https://example.com'
+        );
+
+        expect(topicHref.searchParams.get('return')).toBe(returnHref);
+        expect(caseHref.searchParams.get('return')).toBe(returnHref);
+    });
+
+    it('rejects unsafe return targets and strips detail-only parameters', () => {
+        expect(normalizeShowcaseDirectoryReturnHref('https://evil.example/topics?q=photo')).toBe('/topics');
+        expect(normalizeShowcaseDirectoryReturnHref('//evil.example/topics?q=photo')).toBe('/topics');
+        expect(normalizeShowcaseDirectoryReturnHref('/topics?q=photo#case')).toBe('/topics');
+        expect(normalizeShowcaseDirectoryReturnHref('/topics/other?q=photo')).toBe('/topics');
+        expect(
+            normalizeShowcaseDirectoryReturnHref(
+                '/topics?topic=old-photo-restoration&case=scratch-removal&return=%2Ftopics%3Fq%3Dnested&q=photo&unknown=value'
+            )
+        ).toBe('/topics?q=photo');
+    });
+
+    it('normalizes unsupported filter values to directory defaults', () => {
+        expect(
+            normalizeShowcaseDirectoryReturnHref('/topics?input=invalid&sort=invalid&tag=%20%E6%96%B0%E6%89%8B%20')
+        ).toBe('/topics?tag=%E6%96%B0%E6%89%8B');
     });
 
     it('builds a workbench handoff without an automatic submission flag', () => {

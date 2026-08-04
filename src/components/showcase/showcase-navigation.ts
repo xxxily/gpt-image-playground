@@ -5,13 +5,20 @@ export function getLocalizedShowcaseText(value: ShowcaseLocalizedText, language:
     return value[language] ?? value['zh-CN'] ?? value['en-US'];
 }
 
-export function buildShowcaseTopicHref(topicSlug: string): string {
+function appendShowcaseReturnHref(params: URLSearchParams, returnHref?: string): void {
+    const normalized = normalizeShowcaseDirectoryReturnHref(returnHref);
+    if (normalized !== '/topics') params.set('return', normalized);
+}
+
+export function buildShowcaseTopicHref(topicSlug: string, returnHref?: string): string {
     const params = new URLSearchParams({ topic: topicSlug });
+    appendShowcaseReturnHref(params, returnHref);
     return `/topics?${params.toString()}`;
 }
 
-export function buildShowcaseCaseHref(topicSlug: string, caseSlug: string): string {
+export function buildShowcaseCaseHref(topicSlug: string, caseSlug: string, returnHref?: string): string {
     const params = new URLSearchParams({ topic: topicSlug, case: caseSlug });
+    appendShowcaseReturnHref(params, returnHref);
     return `/topics?${params.toString()}`;
 }
 
@@ -48,4 +55,33 @@ export function buildShowcaseDirectoryHref(filters: ShowcaseDirectoryFilters): s
     if (sort !== 'recommended') params.set('sort', sort);
     const suffix = params.toString();
     return suffix ? `/topics?${suffix}` : '/topics';
+}
+
+/**
+ * Keep directory state across topic/case navigation without accepting an
+ * arbitrary redirect target. Unknown keys, nested detail links, hashes, and
+ * cross-origin URLs are discarded.
+ */
+export function normalizeShowcaseDirectoryReturnHref(value?: string | null): string {
+    if (!value || !value.startsWith('/topics') || value.startsWith('//')) return '/topics';
+    try {
+        const parsed = new URL(value, 'https://showcase.local');
+        if (parsed.origin !== 'https://showcase.local' || parsed.pathname !== '/topics' || parsed.hash)
+            return '/topics';
+        const input = parsed.searchParams.get('input');
+        const sort = parsed.searchParams.get('sort');
+        return buildShowcaseDirectoryHref({
+            query: parsed.searchParams.get('q') ?? undefined,
+            input: ['all', 'none', 'single', 'multiple', 'mask'].includes(input ?? '')
+                ? (input as ShowcaseDirectoryInputFilter)
+                : 'all',
+            tag: parsed.searchParams.get('tag') ?? undefined,
+            category: parsed.searchParams.get('category') ?? undefined,
+            sort: ['recommended', 'latest', 'easy'].includes(sort ?? '')
+                ? (sort as ShowcaseDirectorySort)
+                : 'recommended'
+        });
+    } catch {
+        return '/topics';
+    }
 }
