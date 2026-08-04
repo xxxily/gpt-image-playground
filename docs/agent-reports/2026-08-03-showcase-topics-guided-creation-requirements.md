@@ -7,7 +7,7 @@
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)         |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                   |
-| 提交状态 | 功能提交 `ef1fa43`、发布提交 `23f9cba`、发布后报告收尾提交 `1492844`、annotated tag `v2.15.8`、`master` 与 tag push 均已完成；Action 和 129 部署已验收。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
+| 提交状态 | `v2.15.8` 已完成发布与生产验收；本轮完整结构化运营字段及外部媒体探测已提交为 `52d944a`，`v2.15.9` release commit、tag、Action 和 129 部署等待后续回填。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
 
 ## 范围核对
 
@@ -22,7 +22,7 @@
 | 后台管理             | `/admin/showcases` 支持列表筛选、FAQ、相关专题、用户补充要求、输入数量/MIME、背景/审核等完整运营字段、媒体上传与指派、匿名漏斗汇总、复制、预览、发布、下线、归档、版本回滚，并保留高级 JSON；viewer 只读 | 后台 UI/API、SQLite schema、字段 round-trip 测试与浏览器保存刷新 | 已完成 (Completed) |
 | 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换                                                                                                      | `src/lib/server/showcase/*`                                                                         | 已完成 (Completed)                                                                           |
 | i18n、主题与响应式   | 新增固定文案全部进入中英文资源；前台和后台均完成浅色/深色、桌面/移动验证，无横向溢出；reduced-motion 下无持续旋转或位移动效依赖                                               | `messages.ts`、Playwright 验证                                                                      | 已完成 (Completed)                                                                           |
-| 发布新版本和构建产物 | 目标 `v2.15.8`；本地完整质量门已通过，等待功能提交、版本提交、tag、Action Release 资产和 129 部署                                                                           | 本报告“本轮验证”与后续发布回填                                                                       | 部分完成 (Partial)                                                                           |
+| 发布新版本和构建产物 | 目标 `v2.15.9`；功能提交与本地完整质量门已完成，等待版本提交、tag、Action Release 资产和 129 部署                                                                           | 本报告“本轮验证”与后续发布回填                                                                       | 部分完成 (Partial)                                                                           |
 
 ## 实际完成范围
 
