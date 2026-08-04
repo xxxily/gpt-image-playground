@@ -283,6 +283,9 @@
 | 未来 recipe 的合成空槽位被显示为“无需图片” | 输入摘要只读取可执行案例；全只读专题显示“输入要求未知”，任何具体图片类型筛选都会排除 | 正式 schema 升级仍需继续维护扩展 wire 协商 |
 | 当前非默认供应商实例有凭据却被误判未配置 | 可用性判断显式读取表单 `providerInstanceId`，并在其他兼容实例中检查凭据 | 供应商实例和模型目录的大规模组合仍需生产样本验证 |
 | 17–32 张媒体的未来案例缓存往返后被丢弃 | 只读归一化保留最多 32 个展示媒体，但始终使用空执行槽位并保持 `unsupportedRecipeVersion` | 当前可执行 v1 recipe 继续保持 16 张输入上限 |
+| 搜索框看似即时筛选，实际必须按 Enter 才生效 | 输入草稿立即参与结果过滤，并在 300ms 后防抖同步 URL；提交立即同步，结果数量在移动端持续可见 | 极短时间内的浏览器后退/前进仍由 Next Router 最终状态收敛 |
+| 搜索后立刻切换排序、进入专题或重置可能与延迟 URL 写入竞争 | 所有筛选更新使用当前草稿关键词；进入专题时停止目录搜索同步；重置同时取消计时器、清空草稿和 URL | 已用 390×844 真实浏览器复验输入、组合排序、直接进入专题和重置路径 |
+| Rust `rkyv` 间接依赖出现高危公告 | 锁定升级 `tauri-plugin-log 2.8.0 -> 2.9.0`，移除 `byte-unit`、`rust_decimal` 和 `rkyv` 依赖链 | `quick-xml 0.39.2` 两项公告仍受 Tauri / Wayland 与 Rust MSRV 约束 |
 
 ### 验证与发布状态
 
@@ -294,6 +297,9 @@
 | 差异检查 | `rtk git diff --check` | 通过 |
 | 前台目录 | 390×844 浅色，搜索“老照片”、`sort=easy`、输入类型与任务分类；模拟 API 503 使用未来 recipe 缓存 | `scrollWidth = clientWidth = 390`；URL 状态正确；只读专题显示“输入要求未知”，选择“无需图片”后被排除；模拟 503 产生一条预期网络错误，恢复真实 API 后 Console 0 error / 0 warning |
 | 案例详情 | 1280×800 深色，老照片案例、提示词复制 | 无横向溢出；复制后 live region 显示“提示词已复制”；Console 0 error / 0 warning |
+| 搜索交互复验 | 390×844，直接输入“老照片”、等待 URL 同步、切换 `sort=easy`、输入后立即进入专题、无结果后重置 | 输入后无需 Enter 即从 6 项缩为 1 项；约 300ms 后 URL 写入 `q`；排序保留查询；延迟写入不会覆盖专题导航；重置恢复 6 项且无横向溢出 |
+| 前后对比键盘 | 1280×800 深色、reduced-motion；切换滑杆并按 `ArrowRight` | 原生 range 从 50 变为 51，`aria-label` 和 `aria-valuetext` 同步更新 |
+| Rust 依赖收口 | `rtk cargo update --manifest-path src-tauri/Cargo.toml -p tauri-plugin-log --precise 2.9.0`；`rtk npm run rust:test`；`rtk npm run rust:clippy`；`rtk npm run rust:audit` | `rkyv` 已移除；83 项测试与 Clippy 通过；audit 只剩 `quick-xml 0.39.2` 两项漏洞和 21 项既有允许 warning |
 | 后台登录态 | 独立临时 SQLite、临时 owner、390×844；双语分类、保存、刷新回读、匿名导出、审计接口 | 两条分类完整 round-trip；导出下载 `showcase-analytics-30d.ndjson`；审计出现 `showcase_analytics_export`；临时服务与数据库已删除 |
 | 截图 | `.playwright-cli/showcase-topics-390-light-v21510.png`、`.playwright-cli/showcase-case-1280-dark-v21510.png`、`.playwright-cli/showcase-admin-categories.png` | 已保存为本轮浏览器证据，不纳入发布包 |
 
