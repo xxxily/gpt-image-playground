@@ -20,6 +20,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
 
+const SEARCH_QUERY_SYNC_DELAY_MS = 300;
+
 function TopicsHeader() {
     const { t } = useAppLanguage();
     return (
@@ -69,8 +71,17 @@ export function ShowcaseTopicsPage() {
         : 'recommended';
     const [queryDraft, setQueryDraft] = React.useState(queryParam);
     const trackedOpensRef = React.useRef(new Set<string>());
+    const pendingQueryParamRef = React.useRef<string | null>(null);
+    const querySyncTimerRef = React.useRef<number | null>(null);
 
-    React.useEffect(() => setQueryDraft(queryParam), [queryParam]);
+    React.useEffect(() => {
+        const pendingQueryParam = pendingQueryParamRef.current;
+        if (pendingQueryParam !== null) {
+            pendingQueryParamRef.current = null;
+            if (pendingQueryParam === queryParam) return;
+        }
+        setQueryDraft(queryParam);
+    }, [queryParam]);
 
     React.useEffect(() => {
         if (state.isLoading || !topic) return;
@@ -109,7 +120,7 @@ export function ShowcaseTopicsPage() {
     }, [language, state.catalog.topics]);
 
     const topics = React.useMemo(() => {
-        const query = queryParam.toLocaleLowerCase(language);
+        const query = queryDraft.trim().toLocaleLowerCase(language);
         return state.catalog.topics
             .filter((item) => {
                 const cases = item.caseIds
@@ -118,7 +129,8 @@ export function ShowcaseTopicsPage() {
                 const summary = getShowcaseTopicInputSummary(state.catalog, item);
                 if (inputFilter !== 'all' && !summary.inputRequirementsKnown) return false;
                 if (inputFilter === 'none' && summary.minimumInputs !== 0) return false;
-                if (inputFilter === 'single' && !(summary.minimumInputs <= 1 && summary.maximumInputs === 1)) return false;
+                if (inputFilter === 'single' && !(summary.minimumInputs <= 1 && summary.maximumInputs === 1))
+                    return false;
                 if (inputFilter === 'multiple' && summary.maximumInputs < 2) return false;
                 if (inputFilter === 'mask' && !summary.needsMask) return false;
                 if (
@@ -162,9 +174,16 @@ export function ShowcaseTopicsPage() {
                     const leftSummary = getShowcaseTopicInputSummary(state.catalog, left);
                     const rightSummary = getShowcaseTopicInputSummary(state.catalog, right);
                     return (
-                        Math.min(...leftSummary.difficulties.map((difficulty) => ({ beginner: 0, intermediate: 1, advanced: 2 }[difficulty]))) -
-                            Math.min(...rightSummary.difficulties.map((difficulty) => ({ beginner: 0, intermediate: 1, advanced: 2 }[difficulty]))) ||
-                        left.sortOrder - right.sortOrder
+                        Math.min(
+                            ...leftSummary.difficulties.map(
+                                (difficulty) => ({ beginner: 0, intermediate: 1, advanced: 2 })[difficulty]
+                            )
+                        ) -
+                            Math.min(
+                                ...rightSummary.difficulties.map(
+                                    (difficulty) => ({ beginner: 0, intermediate: 1, advanced: 2 })[difficulty]
+                                )
+                            ) || left.sortOrder - right.sortOrder
                     );
                 }
                 if (sort === 'latest') {
@@ -172,7 +191,7 @@ export function ShowcaseTopicsPage() {
                 }
                 return Number(right.featured) - Number(left.featured) || left.sortOrder - right.sortOrder;
             });
-    }, [categoryFilter, inputFilter, language, queryParam, sort, state.catalog, tagFilter]);
+    }, [categoryFilter, inputFilter, language, queryDraft, sort, state.catalog, tagFilter]);
 
     const allCategories = React.useMemo(() => {
         const values = new Map<string, string>();
@@ -193,9 +212,15 @@ export function ShowcaseTopicsPage() {
             category?: string;
             sort?: ShowcaseDirectorySort;
         }) => {
+            if (querySyncTimerRef.current !== null) {
+                window.clearTimeout(querySyncTimerRef.current);
+                querySyncTimerRef.current = null;
+            }
+            const nextQuery = (next.query ?? queryDraft).trim();
+            if (nextQuery !== queryParam) pendingQueryParamRef.current = nextQuery;
             router.replace(
                 buildShowcaseDirectoryHref({
-                    query: next.query ?? queryParam,
+                    query: nextQuery,
                     input: next.input ?? inputFilter,
                     tag: next.tag ?? tagFilter,
                     category: next.category ?? categoryFilter,
@@ -204,8 +229,29 @@ export function ShowcaseTopicsPage() {
                 { scroll: false }
             );
         },
-        [categoryFilter, inputFilter, queryParam, router, sort, tagFilter]
+        [categoryFilter, inputFilter, queryDraft, queryParam, router, sort, tagFilter]
     );
+
+    React.useEffect(() => {
+        if (topicSlug) return;
+        const nextQuery = queryDraft.trim();
+        if (nextQuery === queryParam) return;
+        querySyncTimerRef.current = window.setTimeout(() => {
+            querySyncTimerRef.current = null;
+            updateFilters({ query: nextQuery });
+        }, SEARCH_QUERY_SYNC_DELAY_MS);
+        return () => {
+            if (querySyncTimerRef.current !== null) {
+                window.clearTimeout(querySyncTimerRef.current);
+                querySyncTimerRef.current = null;
+            }
+        };
+    }, [queryDraft, queryParam, topicSlug, updateFilters]);
+
+    const resetFilters = React.useCallback(() => {
+        setQueryDraft('');
+        updateFilters({ query: '', input: 'all', tag: '', category: '', sort: 'recommended' });
+    }, [updateFilters]);
 
     if (state.isLoading && ((topicSlug && !topic) || (topic && caseSlug && !showcaseCase))) {
         return (
@@ -299,7 +345,7 @@ export function ShowcaseTopicsPage() {
                                 {t('showcase.page.directoryDescription')}
                             </p>
                         </div>
-                        <span className='text-on-panel-faint hidden text-xs sm:inline'>
+                        <span className='text-on-panel-faint shrink-0 text-xs' role='status' aria-live='polite'>
                             {t('showcase.page.topicCount', { count: topics.length })}
                         </span>
                     </div>
@@ -357,7 +403,9 @@ export function ShowcaseTopicsPage() {
                             <select
                                 name='showcase-sort'
                                 value={sort}
-                                onChange={(event) => updateFilters({ sort: event.target.value as ShowcaseDirectorySort })}
+                                onChange={(event) =>
+                                    updateFilters({ sort: event.target.value as ShowcaseDirectorySort })
+                                }
                                 className='border-input bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-[3px]'>
                                 {(['recommended', 'latest', 'easy'] as const).map((value) => (
                                     <option key={value} value={value}>
@@ -384,7 +432,9 @@ export function ShowcaseTopicsPage() {
                             ))}
                             {allCategories.length > 0 ? (
                                 <>
-                                    <span className='text-on-panel-faint ml-1 text-xs'>{t('showcase.page.categoryFilterLabel')}</span>
+                                    <span className='text-on-panel-faint ml-1 text-xs'>
+                                        {t('showcase.page.categoryFilterLabel')}
+                                    </span>
                                     {allCategories.slice(0, 8).map((category) => (
                                         <button
                                             key={`category-${category}`}
@@ -403,12 +453,19 @@ export function ShowcaseTopicsPage() {
                                     ))}
                                 </>
                             ) : null}
-                            {queryParam || inputFilter !== 'all' || tagFilter || categoryFilter || sort !== 'recommended' ? (
-                                <Button asChild variant='ghost' size='sm' className='ml-auto'>
-                                    <Link href='/topics'>
-                                        <RotateCcw aria-hidden='true' />
-                                        {t('showcase.page.resetFilters')}
-                                    </Link>
+                            {queryDraft.trim() ||
+                            inputFilter !== 'all' ||
+                            tagFilter ||
+                            categoryFilter ||
+                            sort !== 'recommended' ? (
+                                <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='sm'
+                                    className='ml-auto'
+                                    onClick={resetFilters}>
+                                    <RotateCcw aria-hidden='true' />
+                                    {t('showcase.page.resetFilters')}
                                 </Button>
                             ) : null}
                         </div>
@@ -426,8 +483,9 @@ export function ShowcaseTopicsPage() {
                                 title={t('showcase.page.noResultsTitle')}
                                 description={t('showcase.page.noResultsDescription')}
                                 action={
-                                    <Button asChild variant='outline'>
-                                        <Link href='/topics'>{t('showcase.page.resetFilters')}</Link>
+                                    <Button type='button' variant='outline' onClick={resetFilters}>
+                                        <RotateCcw aria-hidden='true' />
+                                        {t('showcase.page.resetFilters')}
                                     </Button>
                                 }
                             />
