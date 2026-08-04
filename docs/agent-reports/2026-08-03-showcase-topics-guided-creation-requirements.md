@@ -7,7 +7,7 @@
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)         |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                   |
-| 提交状态 | `v2.15.8` 已完成发布与生产验收；本轮完整结构化运营字段及外部媒体探测已提交为 `52d944a`，`v2.15.9` release commit、tag、Action 和 129 部署等待后续回填。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
+| 提交状态 | 功能提交 `52d944a`、发布提交 `9de3c2d`、annotated tag `v2.15.9` 均已推送；Action、正式 Release 与 129 部署已验收。发布后报告收尾提交待创建。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
 
 ## 范围核对
 
@@ -22,7 +22,7 @@
 | 后台管理             | `/admin/showcases` 支持列表筛选、FAQ、相关专题、用户补充要求、输入数量/MIME、背景/审核等完整运营字段、媒体上传与指派、匿名漏斗汇总、复制、预览、发布、下线、归档、版本回滚，并保留高级 JSON；viewer 只读 | 后台 UI/API、SQLite schema、字段 round-trip 测试与浏览器保存刷新 | 已完成 (Completed) |
 | 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换                                                                                                      | `src/lib/server/showcase/*`                                                                         | 已完成 (Completed)                                                                           |
 | i18n、主题与响应式   | 新增固定文案全部进入中英文资源；前台和后台均完成浅色/深色、桌面/移动验证，无横向溢出；reduced-motion 下无持续旋转或位移动效依赖                                               | `messages.ts`、Playwright 验证                                                                      | 已完成 (Completed)                                                                           |
-| 发布新版本和构建产物 | 目标 `v2.15.9`；功能提交与本地完整质量门已完成，等待版本提交、tag、Action Release 资产和 129 部署                                                                           | 本报告“本轮验证”与后续发布回填                                                                       | 部分完成 (Partial)                                                                           |
+| 发布新版本和构建产物 | `v2.15.9` 已推送；7 个 Action jobs 全部成功，正式 Release 15 个资产齐全，129 已切换并完成 HTTP、ETag、SQLite 与回滚验收                                             | [v2.15.9 发布报告](./2026-08-04-release-2.15.9.md)                                                   | 已完成 (Completed)                                                                           |
 
 ## 实际完成范围
 
@@ -241,3 +241,20 @@
 | 390×844 / 深色 | `scrollWidth = clientWidth = 390`，无表单控件越界；根元素为 `dark` 且 `color-scheme: dark` |
 | Console | 最终页面为 0 error / 0 warning；仅开发环境 React DevTools/HMR 信息 |
 | 清理 | `showcase-v2159` 浏览器会话、3110 开发服务和临时测试环境均已关闭；临时 SQLite/媒体目录不纳入仓库 |
+
+## v2.15.9 发布与生产复验（2026-08-04 13:32–14:20 CST）
+
+| 项目 | 结果 |
+| ---- | ---- |
+| 提交与 tag | `52d944a feat(showcase): complete structured operations and remote media checks`；`9de3c2d chore: release v2.15.9`；annotated tag `v2.15.9`，`master` 与 tag 均已推送 |
+| Action | Run `30881052131` 为 `completed / success`；发布元数据/Web、Release notes、Windows、Linux、macOS、Android、Publish Release 共 7 个 jobs 全部成功 |
+| Release | 正式 Release 非 draft、非 prerelease，共 15 个资产；包含桌面安装包、updater 签名、release-signed Android APK 和 `latest.json` |
+| 129 | `current` 指向 `20260804140657-v2.15.9`，systemd `active`、`NRestarts=0`；Node `20.20.2`，构建后端 `161-docker`，native `linux-glibc228` |
+| HTTP | `/`、`/topics`、`/api/showcases` 返回 200；后台三条路由返回 307 到 `/admin/login`；根页为 no-cache；目录 6 专题、24 案例、56 媒体，ETag 304 |
+| SQLite | `PRAGMA quick_check=ok`；托管媒体 0、发布媒体引用 0、匿名漏斗事件 19；只核对表与数量，不读取业务内容 |
+| 构建故障处理 | 官方 Debian archive 两次不可达、阿里云 HTTPS CA 引导一次失败，均发生在 129 写入前；detached worktree 临时使用阿里云 HTTP archive 和缓存 Node headers 后构建成功 |
+| 安全与回滚 | 两项认证 secret 均保留，共享 `.env` 权限 600；环境备份 `.env.20260804141055`；上一回滚目录 `20260804112334-v2.15.8` |
+| 清理 | 161 source 无 `.env.production` / `.env.local`；一次性容器退出；本地 detached worktree 与临时生产环境已移除 |
+| 明确跳过 | 142 按发布规范暂停；桌面与 Android Release 资产未执行安装级真机验收 |
+
+详细质量门、资产、部署问题与解决证据见 [v2.15.9 发布与构建报告](./2026-08-04-release-2.15.9.md)。Outline：需求 `/doc/gpt-image-playground-U4dlPsf2LV`，持续报告 `/doc/5lit6aky5qgi5l6l5lio5byv5a85byp5yib5l2c6io95yqb5a6e546w5lio5yr5bid5oql5zgk-RIyic3iPPT`，发布报告 `/doc/gpt-image-playground-v2159-LYlVDUgsSp`，129 `/doc/gpt-image-playground-v2159-129-HQuJJPFvxr`，161 `/doc/gpt-image-playground-v2159-161-PUdTyuZ3lh`。
