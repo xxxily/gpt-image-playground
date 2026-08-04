@@ -4,8 +4,8 @@ import { ShowcaseComparison } from './showcase-media';
 import { buildShowcaseCaseHref, buildShowcaseWorkbenchHref, getLocalizedShowcaseText } from './showcase-navigation';
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
-import type { ShowcaseCase, ShowcaseCatalog, ShowcaseTopic } from '@/lib/showcase';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { isExecutableShowcaseCase, type ShowcaseCase, type ShowcaseCatalog, type ShowcaseTopic } from '@/lib/showcase';
+import { ArrowRight, LockKeyhole, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 type ShowcaseCaseCardProps = {
@@ -17,6 +17,7 @@ type ShowcaseCaseCardProps = {
 export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseCardProps) {
     const { language, t } = useAppLanguage();
     const title = getLocalizedShowcaseText(showcaseCase.title, language);
+    const executable = isExecutableShowcaseCase(showcaseCase);
 
     return (
         <article className='app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-2xl border transition-[border-color,box-shadow,transform] duration-200 focus-within:border-violet-500/45 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 motion-reduce:transform-none'>
@@ -30,7 +31,9 @@ export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseC
                         {t(`showcase.difficulty.${showcaseCase.difficulty}`)}
                     </span>
                     <span className='text-on-panel-faint text-xs'>
-                        {t('showcase.case.referenceCount', { count: showcaseCase.recipe.inputSlots.length })}
+                        {executable
+                            ? t('showcase.case.referenceCount', { count: showcaseCase.recipe.inputSlots.length })
+                            : t('showcase.case.updateRequired')}
                     </span>
                 </div>
 
@@ -48,14 +51,21 @@ export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseC
                             <ArrowRight aria-hidden='true' />
                         </Link>
                     </Button>
-                    <Button asChild size='sm' className='min-w-0 flex-1'>
-                        <Link
-                            href={buildShowcaseWorkbenchHref(topic.slug, showcaseCase.slug)}
-                            aria-label={t('showcase.case.startAria', { title })}>
-                            <Sparkles aria-hidden='true' />
-                            {t('showcase.case.start')}
-                        </Link>
-                    </Button>
+                    {executable ? (
+                        <Button asChild size='sm' className='min-w-0 flex-1'>
+                            <Link
+                                href={buildShowcaseWorkbenchHref(topic.slug, showcaseCase.slug)}
+                                aria-label={t('showcase.case.startAria', { title })}>
+                                <Sparkles aria-hidden='true' />
+                                {t('showcase.case.start')}
+                            </Link>
+                        </Button>
+                    ) : (
+                        <Button size='sm' className='min-w-0 flex-1' disabled>
+                            <LockKeyhole aria-hidden='true' />
+                            {t('showcase.case.readOnly')}
+                        </Button>
+                    )}
                 </div>
             </div>
         </article>

@@ -25,12 +25,15 @@ function createStorage() {
 describe('showcase catalog client', () => {
     it('uses a valid remote catalog and stores its ETag', async () => {
         const storage = createStorage();
-        const fetcher = vi.fn(async () =>
-            new Response(JSON.stringify({ catalog: DEFAULT_SHOWCASE_CATALOG }), {
-                status: 200,
-                headers: { etag: '"catalog-v1"', 'content-type': 'application/json' }
-            })
-        );
+        const fetcher = vi.fn((...args: [RequestInfo | URL, RequestInit?]) => {
+            void args;
+            return Promise.resolve(
+                new Response(JSON.stringify({ catalog: DEFAULT_SHOWCASE_CATALOG }), {
+                    status: 200,
+                    headers: { etag: '"catalog-v1"', 'content-type': 'application/json' }
+                })
+            );
+        });
 
         const result = await loadShowcaseCatalog({
             endpoint: 'https://content.example/api/showcases',
@@ -45,6 +48,14 @@ describe('showcase catalog client', () => {
             cachedAt: 1234,
             etag: '"catalog-v1"'
         });
+        expect(fetcher).toHaveBeenCalledWith(
+            'https://content.example/api/showcases',
+            expect.objectContaining({
+                headers: expect.objectContaining({})
+            })
+        );
+        const requestHeaders = new Headers(fetcher.mock.calls[0]?.[1]?.headers);
+        expect(requestHeaders.get('x-showcase-client-version')).toBe('2');
     });
 
     it('uses the recent cache for 304 and network failures', async () => {

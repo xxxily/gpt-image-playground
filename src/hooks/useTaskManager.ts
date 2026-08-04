@@ -1,5 +1,5 @@
 import { formatApiError } from '@/lib/api-error';
-import { categorizeApiError } from '@/lib/api-error-category';
+import { categorizeApiError, type CategorizedError } from '@/lib/api-error-category';
 import { blobUrlStore } from '@/lib/blob-url-store';
 import type { GptImageModel } from '@/lib/cost-utils';
 import { withWorkspaceScope } from '@/lib/creative-workspace-history';
@@ -139,6 +139,8 @@ interface TaskState {
     };
     streamingText: string;
     error?: string;
+    errorCategory?: CategorizedError;
+    showcaseAttribution?: ShowcaseAttribution;
     batchId?: string;
     batchIndex?: number;
     batchTotal?: number;
@@ -232,7 +234,8 @@ function createQueuedTaskState(id: string, params: SubmitParams, createdAt = Dat
                   workspaceId: params.workspaceScope.workspaceId,
                   workspaceNameSnapshot: params.workspaceScope.workspaceNameSnapshot
               }
-            : {})
+            : {}),
+        ...(params.showcaseAttribution ? { showcaseAttribution: params.showcaseAttribution } : {})
     };
 }
 

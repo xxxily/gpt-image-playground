@@ -1,4 +1,5 @@
 import {
+    isExecutableShowcaseCase,
     normalizeShowcaseAsset,
     normalizeShowcaseAttribution,
     normalizeShowcaseCase,
@@ -314,5 +315,56 @@ describe('normalizeShowcaseCatalog', () => {
         });
         expect(normalizeShowcaseCatalog(catalog({ topics: [secondTopic] }))).toBeNull();
         expect(normalizeShowcaseCatalog(catalog({ topics: [topic({ caseIds: [] })] }))).toBeNull();
+    });
+
+    it('isolates a future recipe to one read-only case without executing unknown fields', () => {
+        const futureCase = {
+            ...showcaseCase({ id: 'case-future', slug: 'case-future' }),
+            recipe: {
+                version: 2,
+                prompt: localized('只读展示提示词。', 'Read-only display prompt.'),
+                workflowScript: 'do-not-run()'
+            }
+        };
+        const mixedCatalog = catalog({
+            topics: [topic({ caseIds: ['case-one', 'case-future'] })],
+            cases: [showcaseCase(), futureCase as never]
+        });
+
+        expect(normalizeShowcaseCatalog(mixedCatalog)).toBeNull();
+        const normalized = normalizeShowcaseCatalog(mixedCatalog, { allowUnsupportedRecipeVersions: true });
+
+        expect(normalized?.cases).toHaveLength(2);
+        const normalizedFutureCase = normalized?.cases.find((item) => item.id === 'case-future');
+        expect(normalizedFutureCase).toMatchObject({
+            unsupportedRecipeVersion: 2,
+            readOnlyPrompt: localized('只读展示提示词。', 'Read-only display prompt.')
+        });
+        expect(normalizedFutureCase && isExecutableShowcaseCase(normalizedFutureCase)).toBe(false);
+        expect(JSON.stringify(normalizedFutureCase)).not.toContain('workflowScript');
+        expect(normalizeShowcaseCatalog(normalized, { allowUnsupportedRecipeVersions: true })).toEqual(normalized);
+    });
+
+    it('drops a pathological future case instead of invalidating valid siblings', () => {
+        const futureCase = {
+            ...showcaseCase({ id: 'case-future', slug: 'case-future' }),
+            inputAssetIds: Array.from({ length: 17 }, (_, index) => `input-${index}`),
+            recipe: { version: 2, prompt: localized('未来提示词', 'Future prompt') }
+        };
+        const assets = [
+            ...catalog().assets,
+            ...futureCase.inputAssetIds.map((id) => placeholderAsset(id))
+        ];
+        const normalized = normalizeShowcaseCatalog(
+            catalog({
+                topics: [topic({ caseIds: ['case-one', 'case-future'] })],
+                cases: [showcaseCase(), futureCase as never],
+                assets
+            }),
+            { allowUnsupportedRecipeVersions: true }
+        );
+
+        expect(normalized?.cases.map((item) => item.id)).toEqual(['case-one']);
+        expect(normalized?.topics[0]?.caseIds).toEqual(['case-one']);
     });
 });

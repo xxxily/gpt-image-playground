@@ -1,3 +1,8 @@
+import {
+    assertManagedShowcaseAssetsHealthy,
+    getManagedAssetIds,
+    selectReferencedShowcaseTopicDraftAssets
+} from './media';
 import type {
     ShowcaseAdminActor,
     ShowcaseAdminTopic,
@@ -6,10 +11,10 @@ import type {
     ShowcaseTopicWriteInput
 } from './types';
 import { buildCatalogFromTopicDraft, normalizeShowcaseIdentifier, normalizeShowcaseTopicDraft } from './validation';
-import { recordAuditLog } from '@/lib/server/audit';
+import { getAuditLogMaxRows, pruneAuditLogsToMaxRows } from '@/lib/server/audit';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
 import { showcasePublications, showcaseTopics } from '@/lib/server/schema';
-import { randomToken } from '@/lib/server/security';
+import { randomToken, sanitizePlainText } from '@/lib/server/security';
 import { SHOWCASE_CATALOG_SCHEMA_VERSION } from '@/lib/showcase';
 import type { ShowcaseCatalog } from '@/lib/showcase';
 import { asc, desc, eq } from 'drizzle-orm';
@@ -82,22 +87,57 @@ function getRequestIp(request: Request): string | null {
     return request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip');
 }
 
+function writeAuditInTransaction(
+    actor: ShowcaseAdminActor,
+    action: string,
+    targetId: string,
+    metadata: Record<string, unknown> = {}
+): void {
+    getSqliteClient()
+        .prepare(
+            `INSERT INTO "audit_logs"
+             ("id", "actorUserId", "actorType", "action", "targetType", "targetId", "ip", "userAgent", "metadataJson")
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
+        )
+        .run(
+            randomToken(16),
+            actor.userId,
+            'user',
+            sanitizePlainText(action),
+            'showcase_topic',
+            sanitizePlainText(targetId),
+            getRequestIp(actor.request),
+            actor.request.headers.get('user-agent')?.trim() || null,
+            JSON.stringify(metadata)
+        );
+}
+
 async function writeAudit(
     actor: ShowcaseAdminActor,
     action: string,
     targetId: string,
     metadata: Record<string, unknown> = {}
 ): Promise<void> {
-    await recordAuditLog({
-        actorUserId: actor.userId,
-        actorType: 'user',
-        action,
-        targetType: 'showcase_topic',
-        targetId,
-        ip: getRequestIp(actor.request),
-        userAgent: actor.request.headers.get('user-agent'),
-        metadata
-    });
+    await getServerDatabaseReady();
+    getSqliteClient()
+        .transaction(() => writeAuditInTransaction(actor, action, targetId, metadata))
+        .immediate();
+    await pruneShowcaseAuditLogs();
+}
+
+async function pruneShowcaseAuditLogs(): Promise<void> {
+    try {
+        await pruneAuditLogsToMaxRows(getAuditLogMaxRows());
+    } catch {
+        // Retention maintenance must not turn a successful showcase mutation into an API failure.
+    }
+}
+
+function assertManagedShowcaseAssetsExistInTransaction(ids: readonly string[]): void {
+    if (ids.length === 0) return;
+    const lookup = getSqliteClient().prepare('SELECT 1 AS "present" FROM "showcase_assets" WHERE "id" = ? LIMIT 1;');
+    const missing = ids.filter((id) => !lookup.get(id));
+    if (missing.length > 0) throw new Error(`专题引用的托管媒体不存在：${missing.join(', ')}`);
 }
 
 async function getTopicRow(id: string): Promise<TopicRow | null> {
@@ -108,12 +148,6 @@ async function getTopicRow(id: string): Promise<TopicRow | null> {
     return row ?? null;
 }
 
-async function assertUniqueTopicSlug(slug: string, exceptId?: string): Promise<void> {
-    const db = await getServerDatabaseReady();
-    const [existing] = await db.select().from(showcaseTopics).where(eq(showcaseTopics.slug, slug)).limit(1);
-    if (existing && existing.id !== exceptId) throw new Error('专题 Slug 已存在。');
-}
-
 async function createPublication(
     row: TopicRow,
     draft: ShowcaseTopicDraft,
@@ -121,6 +155,8 @@ async function createPublication(
     sourcePublicationId: string | null = null
 ): Promise<PublicationRow> {
     await getServerDatabaseReady();
+    const publicationDraft = selectReferencedShowcaseTopicDraftAssets(draft);
+    const managedAssetIds = await assertManagedShowcaseAssetsHealthy(publicationDraft);
     const publicationId = randomToken(16);
     const now = new Date();
     const transactionResult = getSqliteClient().transaction(() => {
@@ -131,7 +167,7 @@ async function createPublication(
             .get(row.id) as { revision: number };
         const revision = Number(revisionRow.revision) + 1;
         const catalogRevision = `topic-${row.id}-r${revision}-${publicationId.slice(0, 8)}`;
-        const catalog = buildCatalogFromTopicDraft(draft, catalogRevision, now.getTime());
+        const catalog = buildCatalogFromTopicDraft(publicationDraft, catalogRevision, now.getTime());
         const snapshotJson = publicationSnapshot({
             topic: catalog.topics[0]!,
             cases: catalog.cases,
@@ -156,6 +192,13 @@ async function createPublication(
                 actor.userId,
                 now.getTime()
             );
+        const insertAssetReference = getSqliteClient().prepare(
+            `INSERT INTO "showcase_publication_assets" ("publicationId", "assetId", "createdAt")
+             VALUES (?, ?, ?);`
+        );
+        for (const assetId of managedAssetIds) {
+            insertAssetReference.run(publicationId, assetId, now.getTime());
+        }
         getSqliteClient()
             .prepare(
                 `UPDATE "showcase_topics"
@@ -214,32 +257,50 @@ export async function createShowcaseTopicAdmin(
     actor: ShowcaseAdminActor
 ): Promise<ShowcaseAdminTopic> {
     const draft = normalizedDraftOrThrow(input.draft);
+    const managedAssetIds = getManagedAssetIds(draft);
     assertDateWindow(input.startsAt, input.endsAt);
-    await assertUniqueTopicSlug(draft.topic.slug);
-    const db = await getServerDatabaseReady();
-    const [existingId] = await db
-        .select({ id: showcaseTopics.id })
-        .from(showcaseTopics)
-        .where(eq(showcaseTopics.id, draft.topic.id))
-        .limit(1);
-    if (existingId) throw new Error('专题 ID 已存在。');
-    const [created] = await db
-        .insert(showcaseTopics)
-        .values({
-            id: draft.topic.id,
-            slug: draft.topic.slug,
-            status: 'draft',
-            featured: draft.topic.featured,
-            sortOrder: draft.topic.sortOrder,
-            startsAt: input.startsAt ?? null,
-            endsAt: input.endsAt ?? null,
-            draftJson: JSON.stringify(draft),
-            draftRevision: 1,
-            createdByUserId: actor.userId,
-            updatedByUserId: actor.userId
+    await getServerDatabaseReady();
+    const now = Date.now();
+    getSqliteClient()
+        .transaction(() => {
+            assertManagedShowcaseAssetsExistInTransaction(managedAssetIds);
+            if (
+                getSqliteClient().prepare('SELECT 1 FROM "showcase_topics" WHERE "id" = ? LIMIT 1;').get(draft.topic.id)
+            ) {
+                throw new Error('专题 ID 已存在。');
+            }
+            if (
+                getSqliteClient()
+                    .prepare('SELECT 1 FROM "showcase_topics" WHERE "slug" = ? LIMIT 1;')
+                    .get(draft.topic.slug)
+            ) {
+                throw new Error('专题 Slug 已存在。');
+            }
+            getSqliteClient()
+                .prepare(
+                    `INSERT INTO "showcase_topics"
+                     ("id", "slug", "status", "featured", "sortOrder", "startsAt", "endsAt", "draftJson", "draftRevision", "createdByUserId", "updatedByUserId", "createdAt", "updatedAt")
+                     VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?);`
+                )
+                .run(
+                    draft.topic.id,
+                    draft.topic.slug,
+                    draft.topic.featured ? 1 : 0,
+                    draft.topic.sortOrder,
+                    dateMs(input.startsAt) ?? null,
+                    dateMs(input.endsAt) ?? null,
+                    JSON.stringify(draft),
+                    actor.userId,
+                    actor.userId,
+                    now,
+                    now
+                );
+            writeAuditInTransaction(actor, 'showcase_topic_create', draft.topic.id, { slug: draft.topic.slug });
         })
-        .returning();
-    await writeAudit(actor, 'showcase_topic_create', created.id, { slug: created.slug });
+        .immediate();
+    await pruneShowcaseAuditLogs();
+    const created = await getTopicRow(draft.topic.id);
+    if (!created) throw new Error('专题草稿创建失败。');
     return toAdminTopic(created);
 }
 
@@ -248,32 +309,63 @@ export async function updateShowcaseTopicAdmin(
     input: ShowcaseTopicWriteInput,
     actor: ShowcaseAdminActor
 ): Promise<ShowcaseAdminTopic | null> {
-    const row = await getTopicRow(id);
-    if (!row) return null;
+    const normalizedId = normalizeShowcaseIdentifier(id);
+    if (!normalizedId) return null;
     const draft = normalizedDraftOrThrow(input.draft);
-    if (draft.topic.id !== row.id) throw new Error('专题 ID 创建后不能修改。');
+    const managedAssetIds = getManagedAssetIds(draft);
+    if (draft.topic.id !== normalizedId) throw new Error('专题 ID 创建后不能修改。');
     assertDateWindow(input.startsAt, input.endsAt);
-    await assertUniqueTopicSlug(draft.topic.slug, row.id);
-    const db = await getServerDatabaseReady();
-    const [updated] = await db
-        .update(showcaseTopics)
-        .set({
-            slug: draft.topic.slug,
-            featured: draft.topic.featured,
-            sortOrder: draft.topic.sortOrder,
-            startsAt: input.startsAt === undefined ? row.startsAt : input.startsAt,
-            endsAt: input.endsAt === undefined ? row.endsAt : input.endsAt,
-            draftJson: JSON.stringify(draft),
-            draftRevision: row.draftRevision + 1,
-            updatedByUserId: actor.userId,
-            updatedAt: new Date()
+    await getServerDatabaseReady();
+    let updatedRevision = 0;
+    let found = false;
+    getSqliteClient()
+        .transaction(() => {
+            const row = getSqliteClient()
+                .prepare(
+                    'SELECT "id", "startsAt", "endsAt", "draftRevision" FROM "showcase_topics" WHERE "id" = ? LIMIT 1;'
+                )
+                .get(normalizedId) as
+                | { id: string; startsAt: number | null; endsAt: number | null; draftRevision: number }
+                | undefined;
+            if (!row) return;
+            found = true;
+            assertManagedShowcaseAssetsExistInTransaction(managedAssetIds);
+            const slugOwner = getSqliteClient()
+                .prepare('SELECT "id" FROM "showcase_topics" WHERE "slug" = ? LIMIT 1;')
+                .get(draft.topic.slug) as { id: string } | undefined;
+            if (slugOwner && slugOwner.id !== normalizedId) throw new Error('专题 Slug 已存在。');
+            updatedRevision = Number(row.draftRevision) + 1;
+            const now = Date.now();
+            const result = getSqliteClient()
+                .prepare(
+                    `UPDATE "showcase_topics"
+                     SET "slug" = ?, "featured" = ?, "sortOrder" = ?, "startsAt" = ?, "endsAt" = ?,
+                         "draftJson" = ?, "draftRevision" = ?, "updatedByUserId" = ?, "updatedAt" = ?
+                     WHERE "id" = ?;`
+                )
+                .run(
+                    draft.topic.slug,
+                    draft.topic.featured ? 1 : 0,
+                    draft.topic.sortOrder,
+                    input.startsAt === undefined ? row.startsAt : dateMs(input.startsAt),
+                    input.endsAt === undefined ? row.endsAt : dateMs(input.endsAt),
+                    JSON.stringify(draft),
+                    updatedRevision,
+                    actor.userId,
+                    now,
+                    normalizedId
+                );
+            if (result.changes !== 1) throw new Error('专题草稿更新失败。');
+            writeAuditInTransaction(actor, 'showcase_topic_update', normalizedId, {
+                slug: draft.topic.slug,
+                draftRevision: updatedRevision
+            });
         })
-        .where(eq(showcaseTopics.id, row.id))
-        .returning();
-    await writeAudit(actor, 'showcase_topic_update', row.id, {
-        slug: updated.slug,
-        draftRevision: updated.draftRevision
-    });
+        .immediate();
+    if (!found) return null;
+    await pruneShowcaseAuditLogs();
+    const updated = await getTopicRow(normalizedId);
+    if (!updated) throw new Error('专题草稿更新后无法读取。');
     return toAdminTopic(updated);
 }
 

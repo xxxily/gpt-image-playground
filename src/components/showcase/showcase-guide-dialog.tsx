@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getAssetLibraryFile, isAssetLibraryImage, listAssetLibraryItems } from '@/lib/asset-library';
 import { getClipboardImageFiles } from '@/lib/clipboard-images';
 import { copyTextToClipboard, readDesktopClipboardImageFile } from '@/lib/desktop-runtime';
-import type { ShowcaseCase, ShowcaseTopic } from '@/lib/showcase';
+import { isExecutableShowcaseCase, type ShowcaseCase, type ShowcaseTopic } from '@/lib/showcase';
 import {
     buildShowcaseRecipePrompt,
     localizeShowcaseText,
@@ -195,7 +195,7 @@ export function ShowcaseGuideDialog({
             .finally(() => setAssetsLoading(false));
     }, [addNotice, assetItems.length, assetsLoading, slotPicker?.source, t]);
 
-    if (!topic || !showcaseCase) return null;
+    if (!topic || !showcaseCase || !isExecutableShowcaseCase(showcaseCase)) return null;
 
     const recipe = showcaseCase.recipe;
     const orderedSlots = [...recipe.inputSlots].sort((left, right) => left.workbenchOrder - right.workbenchOrder);
@@ -437,7 +437,10 @@ export function ShowcaseGuideDialog({
                                                     onClick={() => void readClipboardForSlot(slot.id, slot.maxCount)}
                                                     disabled={pickerBusyKey === `clipboard:${slot.id}`}>
                                                     {pickerBusyKey === `clipboard:${slot.id}` ? (
-                                                        <Loader2 className='animate-spin' aria-hidden='true' />
+                                                        <Loader2
+                                                            className='animate-spin motion-reduce:animate-none'
+                                                            aria-hidden='true'
+                                                        />
                                                     ) : (
                                                         <ClipboardPaste aria-hidden='true' />
                                                     )}
@@ -710,7 +713,10 @@ export function ShowcaseGuideDialog({
                             <div className='max-h-[min(66dvh,34rem)] overflow-y-auto p-4 sm:p-5'>
                                 {assetsLoading ? (
                                     <div className='text-on-panel-muted flex min-h-40 items-center justify-center gap-2 text-sm'>
-                                        <Loader2 className='size-4 animate-spin' aria-hidden='true' />
+                                        <Loader2
+                                            className='size-4 animate-spin motion-reduce:animate-none'
+                                            aria-hidden='true'
+                                        />
                                         {t('showcase.guide.source.loading')}
                                     </div>
                                 ) : assetItems.length > 0 ? (
@@ -725,7 +731,7 @@ export function ShowcaseGuideDialog({
                                                 <span className='bg-background flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border'>
                                                     {pickerBusyKey === `asset:${item.id}` ? (
                                                         <Loader2
-                                                            className='text-on-panel-faint size-5 animate-spin'
+                                                            className='text-on-panel-faint size-5 animate-spin motion-reduce:animate-none'
                                                             aria-hidden='true'
                                                         />
                                                     ) : (
@@ -787,7 +793,7 @@ export function ShowcaseGuideDialog({
                                                         {busy ? (
                                                             <span className='absolute inset-0 flex items-center justify-center bg-black/35'>
                                                                 <Loader2
-                                                                    className='size-5 animate-spin text-white'
+                                                                    className='size-5 animate-spin text-white motion-reduce:animate-none'
                                                                     aria-hidden='true'
                                                                 />
                                                             </span>

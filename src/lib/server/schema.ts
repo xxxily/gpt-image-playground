@@ -55,6 +55,21 @@ export type ManagedTaskFallbackMode = (typeof managedTaskFallbackModes)[number];
 export const showcaseTopicStatuses = ['draft', 'scheduled', 'published', 'unpublished', 'archived'] as const;
 export type ShowcaseTopicStatus = (typeof showcaseTopicStatuses)[number];
 
+export const showcaseAssetMimeTypes = ['image/webp'] as const;
+export type ShowcaseAssetMimeType = (typeof showcaseAssetMimeTypes)[number];
+
+export const showcaseEventNames = [
+    'showcase_impression',
+    'showcase_open',
+    'showcase_case_open',
+    'showcase_recipe_prepare',
+    'showcase_recipe_apply',
+    'showcase_generation_submit',
+    'showcase_generation_success',
+    'showcase_generation_failure'
+] as const;
+export type ShowcaseEventName = (typeof showcaseEventNames)[number];
+
 const nowExpression = sql`(cast((julianday('now') - 2440587.5) * 86400000 as integer))`;
 
 const timestampMs = (name: string) => integer(name, { mode: 'timestamp_ms' }).notNull().default(nowExpression);
@@ -423,6 +438,33 @@ export const showcaseTopics = sqliteTable(
     })
 );
 
+export const showcaseAssets = sqliteTable(
+    'showcase_assets',
+    {
+        id: text('id').primaryKey(),
+        mimeType: text('mimeType').notNull().$type<ShowcaseAssetMimeType>(),
+        width: integer('width').notNull(),
+        height: integer('height').notNull(),
+        byteSize: integer('byteSize').notNull(),
+        thumbnailWidth: integer('thumbnailWidth').notNull(),
+        thumbnailHeight: integer('thumbnailHeight').notNull(),
+        thumbnailByteSize: integer('thumbnailByteSize').notNull(),
+        checksum: text('checksum').notNull(),
+        storageKey: text('storageKey').notNull().unique(),
+        thumbnailStorageKey: text('thumbnailStorageKey').notNull().unique(),
+        sourceLabel: text('sourceLabel').notNull(),
+        licenseNote: text('licenseNote').notNull(),
+        altZhCN: text('altZhCN').notNull(),
+        altEnUS: text('altEnUS').notNull(),
+        createdByUserId: text('createdByUserId').references(() => authUsers.id, { onDelete: 'set null' }),
+        createdAt: timestampMs('createdAt')
+    },
+    (table) => ({
+        checksumIdx: index('showcase_assets_checksum_idx').on(table.checksum),
+        createdAtIdx: index('showcase_assets_created_at_idx').on(table.createdAt)
+    })
+);
+
 export const showcasePublications = sqliteTable(
     'showcase_publications',
     {
@@ -443,6 +485,49 @@ export const showcasePublications = sqliteTable(
         topicRevisionIdx: uniqueIndex('showcase_publications_topic_revision_idx').on(table.topicId, table.revision),
         topicPublishedAtIdx: index('showcase_publications_topic_published_at_idx').on(table.topicId, table.publishedAt),
         contentHashIdx: index('showcase_publications_content_hash_idx').on(table.contentHash)
+    })
+);
+
+export const showcasePublicationAssets = sqliteTable(
+    'showcase_publication_assets',
+    {
+        publicationId: text('publicationId')
+            .notNull()
+            .references(() => showcasePublications.id, { onDelete: 'cascade' }),
+        assetId: text('assetId')
+            .notNull()
+            .references(() => showcaseAssets.id, { onDelete: 'restrict' }),
+        createdAt: timestampMs('createdAt')
+    },
+    (table) => ({
+        publicationAssetIdx: uniqueIndex('showcase_publication_assets_publication_asset_idx').on(
+            table.publicationId,
+            table.assetId
+        ),
+        assetIdx: index('showcase_publication_assets_asset_idx').on(table.assetId)
+    })
+);
+
+export const showcaseEvents = sqliteTable(
+    'showcase_events',
+    {
+        id: text('id').primaryKey(),
+        eventName: text('eventName').notNull().$type<ShowcaseEventName>(),
+        topicId: text('topicId').notNull(),
+        caseId: text('caseId'),
+        catalogRevision: text('catalogRevision'),
+        position: integer('position'),
+        entryPoint: text('entryPoint'),
+        runtime: text('runtime').notNull(),
+        recipeVersion: integer('recipeVersion'),
+        modelId: text('modelId'),
+        errorCategory: text('errorCategory'),
+        createdAt: timestampMs('createdAt')
+    },
+    (table) => ({
+        eventCreatedAtIdx: index('showcase_events_event_created_at_idx').on(table.eventName, table.createdAt),
+        topicCreatedAtIdx: index('showcase_events_topic_created_at_idx').on(table.topicId, table.createdAt),
+        caseCreatedAtIdx: index('showcase_events_case_created_at_idx').on(table.caseId, table.createdAt)
     })
 );
 
@@ -484,7 +569,10 @@ export const serverSchema = {
     managed_task_services: managedTaskServices,
     managed_task_policies: managedTaskPolicies,
     showcase_topics: showcaseTopics,
+    showcase_assets: showcaseAssets,
     showcase_publications: showcasePublications,
+    showcase_publication_assets: showcasePublicationAssets,
+    showcase_events: showcaseEvents,
     audit_logs: auditLogs
 } as const;
 

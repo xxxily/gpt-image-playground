@@ -5,6 +5,7 @@ import {
     normalizeShowcaseRecipe,
     resolveShowcaseRecipeWorkbenchValues,
     SHOWCASE_RECIPE_VERSION,
+    sortShowcasePreferredModelIds,
     syncShowcasePromptWithUserInstruction
 } from './showcase-recipe';
 import type { ShowcaseInputSlot, ShowcaseRecipeV1 } from './showcase-recipe';
@@ -290,5 +291,14 @@ describe('showcase recipe application helpers', () => {
             scenarioId: 'xiaohongshu-cover',
             quality: 'high'
         });
+    });
+
+    it('puts configured preferred models first while preserving stable fallback order', () => {
+        expect(
+            sortShowcasePreferredModelIds(
+                ['gpt-image-2', 'gemini-3.1-flash-image-preview', 'custom-editor'],
+                ['custom-editor', 'gpt-image-2']
+            )
+        ).toEqual(['custom-editor', 'gpt-image-2', 'gemini-3.1-flash-image-preview']);
     });
 });

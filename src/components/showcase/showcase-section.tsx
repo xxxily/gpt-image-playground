@@ -4,6 +4,7 @@ import { ShowcaseTopicCard } from './showcase-topic-card';
 import { getShowcaseCatalogSourceMessageKey, useShowcaseCatalog } from './use-showcase-catalog';
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
+import { trackShowcaseAnalyticsEvent } from '@/lib/showcase-analytics-client';
 import type { ShowcaseCatalog } from '@/lib/showcase';
 import { ArrowRight, Compass, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
@@ -18,6 +19,7 @@ export type ShowcaseSectionProps = {
 export function ShowcaseSection({ catalog: catalogOverride, className, maxTopics = 3 }: ShowcaseSectionProps) {
     const { t } = useAppLanguage();
     const sectionRef = React.useRef<HTMLElement | null>(null);
+    const trackedImpressionsRef = React.useRef(new Set<string>());
     const [shouldLoad, setShouldLoad] = React.useState(Boolean(catalogOverride));
     const state = useShowcaseCatalog(catalogOverride, { enabled: shouldLoad });
 
@@ -44,6 +46,31 @@ export function ShowcaseSection({ catalog: catalogOverride, className, maxTopics
         .filter((topic) => topic.featured)
         .sort((left, right) => left.sortOrder - right.sortOrder)
         .slice(0, Math.max(1, maxTopics));
+
+    React.useEffect(() => {
+        const node = sectionRef.current;
+        if (!node || topics.length === 0 || typeof IntersectionObserver === 'undefined') return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (!entries.some((entry) => entry.isIntersecting)) return;
+                topics.forEach((topic, position) => {
+                    const key = `${state.catalog.catalogRevision}:${topic.id}`;
+                    if (trackedImpressionsRef.current.has(key)) return;
+                    trackedImpressionsRef.current.add(key);
+                    trackShowcaseAnalyticsEvent({
+                        event: 'showcase_impression',
+                        topicId: topic.id,
+                        position,
+                        catalogRevision: state.catalog.catalogRevision
+                    });
+                });
+                observer.disconnect();
+            },
+            { threshold: 0.2 }
+        );
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [state.catalog.catalogRevision, topics]);
 
     return (
         <section
@@ -87,7 +114,10 @@ export function ShowcaseSection({ catalog: catalogOverride, className, maxTopics
 
             <div className='text-on-panel-faint mt-3 flex items-center gap-1.5 text-[11px]' role='status'>
                 {state.isLoading || state.source === 'cache' ? (
-                    <RefreshCw className={`size-3 ${state.isLoading ? 'animate-spin' : ''}`} aria-hidden='true' />
+                    <RefreshCw
+                        className={`size-3 motion-reduce:animate-none ${state.isLoading ? 'animate-spin' : ''}`}
+                        aria-hidden='true'
+                    />
                 ) : null}
                 {!shouldLoad
                     ? t('showcase.source.readyToLoad')

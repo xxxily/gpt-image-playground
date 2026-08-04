@@ -40,6 +40,8 @@ export function ShowcaseMedia({ asset, className, eager = false, style }: Showca
             // eslint-disable-next-line @next/next/no-img-element
             <img
                 src={asset.url}
+                srcSet={asset.thumbnailUrl && asset.width ? `${asset.thumbnailUrl} 640w, ${asset.url} ${asset.width}w` : undefined}
+                sizes='(max-width: 640px) 100vw, 640px'
                 alt={alt}
                 width={asset.width}
                 height={asset.height}

@@ -3,6 +3,7 @@
 import { useAppLanguage } from '@/components/app-language-provider';
 import { useNotice } from '@/components/notice-provider';
 import { ShowcaseTopicDetail } from '@/components/showcase/showcase-detail';
+import { ShowcaseMedia } from '@/components/showcase/showcase-media';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -19,14 +20,26 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { translateMessage } from '@/lib/i18n/translator';
+import type { ShowcaseAnalyticsSummary } from '@/lib/server/showcase/analytics';
+import type { ShowcaseManagedAsset } from '@/lib/server/showcase/media';
 import type { ShowcaseAdminTopic, ShowcasePublicationSummary, ShowcaseTopicDraft } from '@/lib/server/showcase/types';
-import type { ShowcaseCatalog } from '@/lib/showcase';
-import { setShowcaseRecipeOutputQuality, setShowcaseRecipeOutputSize } from '@/lib/showcase-admin-draft';
+import type { ShowcaseCatalog, ShowcaseCase } from '@/lib/showcase';
+import {
+    formatShowcaseRecipeOutputCustomSize,
+    setShowcaseRecipeOutputCustomSize,
+    setShowcaseRecipeOutputEnum,
+    setShowcaseRecipeOutputInteger,
+    setShowcaseRecipeOutputQuality,
+    setShowcaseRecipeOutputScenario,
+    setShowcaseRecipeOutputSize
+} from '@/lib/showcase-admin-draft';
+import type { ShowcaseInputRole, ShowcaseTaskMode } from '@/lib/showcase-recipe';
 import { cn } from '@/lib/utils';
 import {
     Archive,
     CheckCircle2,
     Copy,
+    ImagePlus,
     Eye,
     Loader2,
     Plus,
@@ -36,7 +49,8 @@ import {
     Save,
     Search,
     Sparkles,
-    StopCircle
+    StopCircle,
+    Trash2
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -55,7 +69,14 @@ type ConfirmAction =
     | { kind: 'publish'; topic: ShowcaseAdminTopic }
     | { kind: 'unpublish'; topic: ShowcaseAdminTopic }
     | { kind: 'archive'; topic: ShowcaseAdminTopic }
-    | { kind: 'rollback'; topic: ShowcaseAdminTopic; publication: ShowcasePublicationSummary };
+    | { kind: 'rollback'; topic: ShowcaseAdminTopic; publication: ShowcasePublicationSummary }
+    | { kind: 'deleteAsset'; asset: ShowcaseManagedAsset };
+
+type ShowcaseMediaTarget =
+    | { kind: 'topic-cover' }
+    | { kind: 'case-cover'; caseId: string }
+    | { kind: 'case-input'; caseId: string }
+    | { kind: 'case-output'; caseId: string };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetch(url, {
@@ -77,6 +98,58 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
         throw new Error(message);
     }
     return payload as T;
+}
+
+async function requestFormJson<T>(url: string, formData: FormData): Promise<T> {
+    const response = await fetch(url, { method: 'POST', body: formData });
+    const payload = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+        const message =
+            payload &&
+            typeof payload === 'object' &&
+            'error' in payload &&
+            typeof (payload as { error?: unknown }).error === 'string'
+                ? (payload as { error: string }).error
+                : 'Operation failed.';
+        throw new Error(message);
+    }
+    return payload as T;
+}
+
+function updateCaseInDraft(
+    draft: ShowcaseTopicDraft,
+    caseId: string,
+    mutate: (showcaseCase: ShowcaseCase) => ShowcaseCase
+): ShowcaseTopicDraft {
+    return {
+        ...draft,
+        cases: draft.cases.map((showcaseCase) => (showcaseCase.id === caseId ? mutate(showcaseCase) : showcaseCase))
+    };
+}
+
+function parseCommaSeparated(value: string): string[] {
+    return [
+        ...new Set(
+            value
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean)
+        )
+    ];
+}
+
+function addCatalogAsset(draft: ShowcaseTopicDraft, asset: ShowcaseManagedAsset['catalogAsset']): ShowcaseTopicDraft {
+    return {
+        ...draft,
+        assets: [...draft.assets.filter((candidate) => candidate.id !== asset.id), asset]
+    };
+}
+
+function setPreferredModelIds(showcaseCase: ShowcaseCase, values: string[]): ShowcaseCase {
+    const recipe = { ...showcaseCase.recipe };
+    if (values.length > 0) recipe.preferredModelIds = values;
+    else delete recipe.preferredModelIds;
+    return { ...showcaseCase, recipe };
 }
 
 function formatJson(value: unknown): string {
@@ -169,6 +242,18 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
     const [previewCatalog, setPreviewCatalog] = React.useState<ShowcaseCatalog | null>(null);
     const [confirmAction, setConfirmAction] = React.useState<ConfirmAction | null>(null);
     const [editorTab, setEditorTab] = React.useState<'structured' | 'advanced'>('structured');
+    const [managedAssets, setManagedAssets] = React.useState<ShowcaseManagedAsset[]>([]);
+    const [mediaDialogOpen, setMediaDialogOpen] = React.useState(false);
+    const [customSizeDrafts, setCustomSizeDrafts] = React.useState<Record<string, string>>({});
+    const [mediaTarget, setMediaTarget] = React.useState<ShowcaseMediaTarget>({ kind: 'topic-cover' });
+    const [mediaUpload, setMediaUpload] = React.useState({
+        file: null as File | null,
+        sourceLabel: '',
+        licenseNote: '',
+        altZhCN: '',
+        altEnUS: ''
+    });
+    const [analyticsSummary, setAnalyticsSummary] = React.useState<ShowcaseAnalyticsSummary | null>(null);
 
     const selectedTopic = topics.find((topic) => topic.id === selectedId) ?? null;
 
@@ -215,6 +300,22 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         return payload.topics;
     }, []);
 
+    const refreshManagedAssets = React.useCallback(async () => {
+        const payload = await requestJson<{ assets: ShowcaseManagedAsset[] }>('/api/admin/showcase-assets');
+        setManagedAssets(payload.assets);
+        return payload.assets;
+    }, []);
+
+    const refreshAnalytics = React.useCallback(async () => {
+        const payload = await requestJson<{ summary: ShowcaseAnalyticsSummary }>('/api/admin/showcase-metrics?days=30');
+        setAnalyticsSummary(payload.summary);
+        return payload.summary;
+    }, []);
+
+    React.useEffect(() => {
+        void Promise.allSettled([refreshManagedAssets(), refreshAnalytics()]);
+    }, [refreshAnalytics, refreshManagedAssets]);
+
     const handleRefresh = async () => {
         if (busyKey) return;
         setBusyKey('refresh');
@@ -235,6 +336,7 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         setSelectedId(topic.id);
         setPreviewCatalog(null);
         setJsonError('');
+        setCustomSizeDrafts({});
     };
 
     const startCreate = () => {
@@ -247,6 +349,7 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         setDraftJson(formatJson(replaceDraftIdentity(defaultDraft, suffix)));
         setStartsAt('');
         setEndsAt('');
+        setCustomSizeDrafts({});
     };
 
     const startCopy = () => {
@@ -261,6 +364,7 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         setStartsAt('');
         setEndsAt('');
         setEditorTab('structured');
+        setCustomSizeDrafts({});
     };
 
     const parseDraft = (): ShowcaseTopicDraft | null => {
@@ -338,6 +442,23 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
     const executeConfirmedAction = async () => {
         if (!confirmAction || busyKey || !canWrite) return;
         const action = confirmAction;
+        if (action.kind === 'deleteAsset') {
+            setBusyKey('delete-asset');
+            try {
+                await requestJson(`/api/admin/showcase-assets/${encodeURIComponent(action.asset.id)}`, {
+                    method: 'DELETE'
+                });
+                setManagedAssets((items) => items.filter((item) => item.id !== action.asset.id));
+                addNotice(t('admin.showcases.media.deleted'), 'success');
+                setConfirmAction(null);
+                setMediaDialogOpen(true);
+            } catch (error) {
+                addNotice(error instanceof Error ? error.message : t('admin.showcases.notice.failed'), 'error');
+            } finally {
+                setBusyKey('');
+            }
+            return;
+        }
         const id = action.topic.id;
         setBusyKey(action.kind);
         try {
@@ -395,6 +516,65 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         }));
     };
 
+    const openMediaDialog = (target: ShowcaseMediaTarget) => {
+        setMediaTarget(target);
+        setMediaDialogOpen(true);
+    };
+
+    const assignManagedAsset = (asset: ShowcaseManagedAsset, target: ShowcaseMediaTarget = mediaTarget) => {
+        updateStructuredDraft((sourceDraft) => {
+            const draft = addCatalogAsset(sourceDraft, asset.catalogAsset);
+            if (target.kind === 'topic-cover') {
+                return { ...draft, topic: { ...draft.topic, coverAssetId: asset.id } };
+            }
+            return updateCaseInDraft(draft, target.caseId, (showcaseCase) => {
+                if (target.kind === 'case-cover') return { ...showcaseCase, coverAssetId: asset.id };
+                if (target.kind === 'case-input') {
+                    return {
+                        ...showcaseCase,
+                        inputAssetIds: [...new Set([...showcaseCase.inputAssetIds, asset.id])]
+                    };
+                }
+                return {
+                    ...showcaseCase,
+                    outputAssetIds: [...new Set([...showcaseCase.outputAssetIds, asset.id])]
+                };
+            });
+        });
+        setMediaDialogOpen(false);
+    };
+
+    const uploadManagedAsset = async () => {
+        if (!mediaUpload.file || busyKey || !canWrite) return;
+        const target = mediaTarget;
+        setBusyKey('media-upload');
+        try {
+            const formData = new FormData();
+            formData.set('file', mediaUpload.file);
+            formData.set('sourceLabel', mediaUpload.sourceLabel);
+            formData.set('licenseNote', mediaUpload.licenseNote);
+            formData.set('altZhCN', mediaUpload.altZhCN);
+            formData.set('altEnUS', mediaUpload.altEnUS);
+            const payload = await requestFormJson<{ asset: ShowcaseManagedAsset }>(
+                '/api/admin/showcase-assets',
+                formData
+            );
+            setManagedAssets((items) => [payload.asset, ...items.filter((item) => item.id !== payload.asset.id)]);
+            setMediaUpload({ file: null, sourceLabel: '', licenseNote: '', altZhCN: '', altEnUS: '' });
+            assignManagedAsset(payload.asset, target);
+            addNotice(t('admin.showcases.media.uploaded'), 'success');
+        } catch (error) {
+            addNotice(error instanceof Error ? error.message : t('admin.showcases.notice.failed'), 'error');
+        } finally {
+            setBusyKey('');
+        }
+    };
+
+    const eventCount = React.useCallback(
+        (event: string) => analyticsSummary?.events.find((item) => item.event === event)?.count ?? 0,
+        [analyticsSummary]
+    );
+
     return (
         <section className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
@@ -410,7 +590,12 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                         size='sm'
                         onClick={() => void handleRefresh()}
                         disabled={Boolean(busyKey)}>
-                        <RefreshCw className={cn('h-4 w-4', busyKey === 'refresh' && 'animate-spin')} />
+                        <RefreshCw
+                            className={cn(
+                                'h-4 w-4 motion-reduce:animate-none',
+                                busyKey === 'refresh' && 'animate-spin'
+                            )}
+                        />
                         {t('admin.showcases.refresh')}
                     </Button>
                     <Button size='sm' onClick={startCreate} disabled={!canWrite || Boolean(busyKey)}>
@@ -433,6 +618,40 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                     {t('admin.showcases.viewerNotice')}
                 </div>
             ) : null}
+
+            <Card className='gap-4 py-4'>
+                <CardHeader className='px-4 sm:px-6'>
+                    <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                        <div>
+                            <CardTitle>{t('admin.showcases.analytics.title')}</CardTitle>
+                            <CardDescription>{t('admin.showcases.analytics.description')}</CardDescription>
+                        </div>
+                        <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => void refreshAnalytics()}
+                            disabled={Boolean(busyKey)}>
+                            <RefreshCw className='size-4 motion-reduce:animate-none' />
+                            {t('admin.showcases.analytics.refresh')}
+                        </Button>
+                    </div>
+                </CardHeader>
+                <CardContent className='grid gap-3 px-4 sm:grid-cols-2 sm:px-6 lg:grid-cols-4'>
+                    {[
+                        ['showcase_impression', 'impressions'],
+                        ['showcase_open', 'opens'],
+                        ['showcase_recipe_apply', 'applies'],
+                        ['showcase_generation_success', 'successes']
+                    ].map(([event, label]) => (
+                        <div key={event} className='app-panel-subtle rounded-xl border p-3'>
+                            <p className='text-muted-foreground text-xs'>{t(`admin.showcases.analytics.${label}`)}</p>
+                            <p className='mt-1 text-2xl font-semibold tabular-nums' data-i18n-skip='true'>
+                                {eventCount(event)}
+                            </p>
+                        </div>
+                    ))}
+                </CardContent>
+            </Card>
 
             <div className='grid min-w-0 gap-5 xl:grid-cols-[minmax(17rem,0.72fr)_minmax(0,1.55fr)]'>
                 <Card className='min-w-0 gap-4 py-4'>
@@ -574,6 +793,21 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                             })}
                                         </span>
                                     </div>
+                                </div>
+                                <div className='app-panel-subtle mt-3 flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between'>
+                                    <div className='min-w-0'>
+                                        <p className='text-sm font-medium'>{t('admin.showcases.media.title')}</p>
+                                        <p className='text-muted-foreground text-xs'>
+                                            {t('admin.showcases.media.description', { count: managedAssets.length })}
+                                        </p>
+                                    </div>
+                                    <Button
+                                        variant='outline'
+                                        size='sm'
+                                        onClick={() => openMediaDialog({ kind: 'topic-cover' })}>
+                                        <ImagePlus />
+                                        {t('admin.showcases.media.chooseTopicCover')}
+                                    </Button>
                                 </div>
                                 <TabsContent value='structured' className='mt-3 space-y-4'>
                                     {parsedDraft ? (
@@ -755,6 +989,135 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                             </span>
                                                         </summary>
                                                         <div className='mt-3 grid gap-3 sm:grid-cols-2'>
+                                                            <div className='flex flex-wrap gap-2 sm:col-span-2'>
+                                                                <Button
+                                                                    type='button'
+                                                                    variant='outline'
+                                                                    size='sm'
+                                                                    onClick={() =>
+                                                                        openMediaDialog({
+                                                                            kind: 'case-cover',
+                                                                            caseId: item.id
+                                                                        })
+                                                                    }>
+                                                                    <ImagePlus />
+                                                                    {t('admin.showcases.media.chooseCaseCover')}
+                                                                </Button>
+                                                                <Button
+                                                                    type='button'
+                                                                    variant='outline'
+                                                                    size='sm'
+                                                                    onClick={() =>
+                                                                        openMediaDialog({
+                                                                            kind: 'case-input',
+                                                                            caseId: item.id
+                                                                        })
+                                                                    }>
+                                                                    <ImagePlus />
+                                                                    {t('admin.showcases.media.addInput')}
+                                                                </Button>
+                                                                <Button
+                                                                    type='button'
+                                                                    variant='outline'
+                                                                    size='sm'
+                                                                    onClick={() =>
+                                                                        openMediaDialog({
+                                                                            kind: 'case-output',
+                                                                            caseId: item.id
+                                                                        })
+                                                                    }>
+                                                                    <ImagePlus />
+                                                                    {t('admin.showcases.media.addOutput')}
+                                                                </Button>
+                                                            </div>
+                                                            <label className='space-y-1.5 text-sm'>
+                                                                <span className='font-medium'>
+                                                                    {t('admin.showcases.field.taskMode')}
+                                                                </span>
+                                                                <select
+                                                                    value={item.recipe.taskMode}
+                                                                    disabled={!canWrite}
+                                                                    onChange={(event) =>
+                                                                        updateStructuredDraft((draft) =>
+                                                                            updateCaseInDraft(
+                                                                                draft,
+                                                                                item.id,
+                                                                                (candidate) => ({
+                                                                                    ...candidate,
+                                                                                    recipe: {
+                                                                                        ...candidate.recipe,
+                                                                                        taskMode: event.target
+                                                                                            .value as ShowcaseTaskMode
+                                                                                    }
+                                                                                })
+                                                                            )
+                                                                        )
+                                                                    }
+                                                                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'>
+                                                                    <option value='image-generate'>
+                                                                        image-generate
+                                                                    </option>
+                                                                    <option value='image-edit'>image-edit</option>
+                                                                </select>
+                                                            </label>
+                                                            <label className='space-y-1.5 text-sm'>
+                                                                <span className='font-medium'>
+                                                                    {t('admin.showcases.field.promptStrategy')}
+                                                                </span>
+                                                                <select
+                                                                    value={item.recipe.promptStrategy}
+                                                                    disabled={!canWrite}
+                                                                    onChange={(event) =>
+                                                                        updateStructuredDraft((draft) =>
+                                                                            updateCaseInDraft(
+                                                                                draft,
+                                                                                item.id,
+                                                                                (candidate) => ({
+                                                                                    ...candidate,
+                                                                                    recipe: {
+                                                                                        ...candidate.recipe,
+                                                                                        promptStrategy: event.target
+                                                                                            .value as
+                                                                                            | 'replace'
+                                                                                            | 'append'
+                                                                                    }
+                                                                                })
+                                                                            )
+                                                                        )
+                                                                    }
+                                                                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'>
+                                                                    <option value='replace'>replace</option>
+                                                                    <option value='append'>append</option>
+                                                                </select>
+                                                            </label>
+                                                            <label className='space-y-1.5 text-sm sm:col-span-2'>
+                                                                <span className='font-medium'>
+                                                                    {t('admin.showcases.field.preferredModels')}
+                                                                </span>
+                                                                <Input
+                                                                    value={
+                                                                        item.recipe.preferredModelIds?.join(', ') ?? ''
+                                                                    }
+                                                                    disabled={!canWrite}
+                                                                    placeholder='gpt-image-1, gemini-2.5-flash-image'
+                                                                    data-i18n-skip='true'
+                                                                    onChange={(event) =>
+                                                                        updateStructuredDraft((draft) =>
+                                                                            updateCaseInDraft(
+                                                                                draft,
+                                                                                item.id,
+                                                                                (candidate) =>
+                                                                                    setPreferredModelIds(
+                                                                                        candidate,
+                                                                                        parseCommaSeparated(
+                                                                                            event.target.value
+                                                                                        )
+                                                                                    )
+                                                                            )
+                                                                        )
+                                                                    }
+                                                                />
+                                                            </label>
                                                             <label className='space-y-1.5 text-sm'>
                                                                 <span className='font-medium'>
                                                                     {t('admin.showcases.field.titleZh')}
@@ -887,7 +1250,7 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                 {item.recipe.inputSlots.map((slot) => (
                                                                     <div
                                                                         key={slot.id}
-                                                                        className='border-border grid gap-2 rounded-lg border p-2 sm:grid-cols-2'>
+                                                                        className='border-border grid gap-2 rounded-lg border p-2 sm:grid-cols-2 lg:grid-cols-4'>
                                                                         <label className='space-y-1 text-xs'>
                                                                             <span>
                                                                                 {t('admin.showcases.field.slotLabelZh')}
@@ -976,8 +1339,190 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                                 }
                                                                             />
                                                                         </label>
+                                                                        <label className='space-y-1 text-xs'>
+                                                                            <span>
+                                                                                {t('admin.showcases.field.slotRole')}
+                                                                            </span>
+                                                                            <select
+                                                                                value={slot.role}
+                                                                                disabled={!canWrite}
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) =>
+                                                                                        updateCaseInDraft(
+                                                                                            draft,
+                                                                                            item.id,
+                                                                                            (candidate) => ({
+                                                                                                ...candidate,
+                                                                                                recipe: {
+                                                                                                    ...candidate.recipe,
+                                                                                                    inputSlots:
+                                                                                                        candidate.recipe.inputSlots.map(
+                                                                                                            (
+                                                                                                                candidateSlot
+                                                                                                            ) =>
+                                                                                                                candidateSlot.id ===
+                                                                                                                slot.id
+                                                                                                                    ? {
+                                                                                                                          ...candidateSlot,
+                                                                                                                          role: event
+                                                                                                                              .target
+                                                                                                                              .value as ShowcaseInputRole
+                                                                                                                      }
+                                                                                                                    : candidateSlot
+                                                                                                        )
+                                                                                                }
+                                                                                            })
+                                                                                        )
+                                                                                    )
+                                                                                }
+                                                                                className='border-input bg-background h-9 w-full rounded-md border px-2'>
+                                                                                {[
+                                                                                    'target',
+                                                                                    'person',
+                                                                                    'garment',
+                                                                                    'product',
+                                                                                    'style-reference',
+                                                                                    'other'
+                                                                                ].map((role) => (
+                                                                                    <option key={role} value={role}>
+                                                                                        {role}
+                                                                                    </option>
+                                                                                ))}
+                                                                            </select>
+                                                                        </label>
+                                                                        <label className='space-y-1 text-xs'>
+                                                                            <span>
+                                                                                {t('admin.showcases.field.slotOrder')}
+                                                                            </span>
+                                                                            <Input
+                                                                                type='number'
+                                                                                min={0}
+                                                                                max={63}
+                                                                                value={slot.workbenchOrder}
+                                                                                disabled={!canWrite}
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) =>
+                                                                                        updateCaseInDraft(
+                                                                                            draft,
+                                                                                            item.id,
+                                                                                            (candidate) => ({
+                                                                                                ...candidate,
+                                                                                                recipe: {
+                                                                                                    ...candidate.recipe,
+                                                                                                    inputSlots:
+                                                                                                        candidate.recipe.inputSlots.map(
+                                                                                                            (
+                                                                                                                candidateSlot
+                                                                                                            ) =>
+                                                                                                                candidateSlot.id ===
+                                                                                                                slot.id
+                                                                                                                    ? {
+                                                                                                                          ...candidateSlot,
+                                                                                                                          workbenchOrder:
+                                                                                                                              Number(
+                                                                                                                                  event
+                                                                                                                                      .target
+                                                                                                                                      .value
+                                                                                                                              ) ||
+                                                                                                                              0
+                                                                                                                      }
+                                                                                                                    : candidateSlot
+                                                                                                        )
+                                                                                                }
+                                                                                            })
+                                                                                        )
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </label>
                                                                     </div>
                                                                 ))}
+                                                            </div>
+                                                            <div className='border-border grid gap-3 rounded-lg border p-3 sm:col-span-2 sm:grid-cols-2 lg:grid-cols-4'>
+                                                                {(
+                                                                    [
+                                                                        'supportsEditing',
+                                                                        'supportsMask',
+                                                                        'supportsCustomSize'
+                                                                    ] as const
+                                                                ).map((field) => (
+                                                                    <label
+                                                                        key={field}
+                                                                        className='flex min-h-10 items-center gap-2 text-sm'>
+                                                                        <Checkbox
+                                                                            checked={
+                                                                                item.recipe.capabilityRequirements[
+                                                                                    field
+                                                                                ] === true
+                                                                            }
+                                                                            disabled={!canWrite}
+                                                                            onCheckedChange={(checked) =>
+                                                                                updateStructuredDraft((draft) =>
+                                                                                    updateCaseInDraft(
+                                                                                        draft,
+                                                                                        item.id,
+                                                                                        (candidate) => ({
+                                                                                            ...candidate,
+                                                                                            recipe: {
+                                                                                                ...candidate.recipe,
+                                                                                                capabilityRequirements:
+                                                                                                    {
+                                                                                                        ...candidate
+                                                                                                            .recipe
+                                                                                                            .capabilityRequirements,
+                                                                                                        [field]:
+                                                                                                            checked ===
+                                                                                                            true
+                                                                                                    }
+                                                                                            }
+                                                                                        })
+                                                                                    )
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                        <span>
+                                                                            {t(`admin.showcases.field.${field}`)}
+                                                                        </span>
+                                                                    </label>
+                                                                ))}
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.minReferences')}
+                                                                    </span>
+                                                                    <Input
+                                                                        type='number'
+                                                                        min={0}
+                                                                        max={16}
+                                                                        value={
+                                                                            item.recipe.capabilityRequirements
+                                                                                .minReferenceImages ?? 0
+                                                                        }
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: {
+                                                                                            ...candidate.recipe,
+                                                                                            capabilityRequirements: {
+                                                                                                ...candidate.recipe
+                                                                                                    .capabilityRequirements,
+                                                                                                minReferenceImages:
+                                                                                                    Number(
+                                                                                                        event.target
+                                                                                                            .value
+                                                                                                    ) || 0
+                                                                                            }
+                                                                                        }
+                                                                                    })
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                </label>
                                                             </div>
                                                             <div className='border-border grid gap-3 rounded-lg border p-3 sm:col-span-2 sm:grid-cols-3'>
                                                                 <label className='space-y-1.5 text-sm'>
@@ -988,7 +1533,12 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                         value={item.recipe.output?.size ?? ''}
                                                                         disabled={!canWrite}
                                                                         placeholder='auto / 1024x1024'
-                                                                        onChange={(event) =>
+                                                                        onChange={(event) => {
+                                                                            setCustomSizeDrafts((current) => {
+                                                                                const next = { ...current };
+                                                                                delete next[item.id];
+                                                                                return next;
+                                                                            });
                                                                             updateStructuredDraft((draft) => ({
                                                                                 ...draft,
                                                                                 cases: draft.cases.map((candidate) =>
@@ -1006,9 +1556,87 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                                           }
                                                                                         : candidate
                                                                                 )
-                                                                            }))
-                                                                        }
+                                                                            }));
+                                                                        }}
                                                                     />
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputScenario')}
+                                                                    </span>
+                                                                    <Input
+                                                                        value={item.recipe.output?.scenarioId ?? ''}
+                                                                        disabled={!canWrite}
+                                                                        data-i18n-skip='true'
+                                                                        onChange={(event) => {
+                                                                            setCustomSizeDrafts((current) => {
+                                                                                const next = { ...current };
+                                                                                delete next[item.id];
+                                                                                return next;
+                                                                            });
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: {
+                                                                                            ...candidate.recipe,
+                                                                                            output: setShowcaseRecipeOutputScenario(
+                                                                                                candidate.recipe.output,
+                                                                                                event.target.value
+                                                                                            )
+                                                                                        }
+                                                                                    })
+                                                                                )
+                                                                            );
+                                                                        }}
+                                                                    />
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.customSize')}
+                                                                    </span>
+                                                                    <Input
+                                                                        inputMode='numeric'
+                                                                        value={
+                                                                            customSizeDrafts[item.id] ??
+                                                                            formatShowcaseRecipeOutputCustomSize(
+                                                                                item.recipe.output
+                                                                            )
+                                                                        }
+                                                                        disabled={!canWrite}
+                                                                        placeholder='1200×1600'
+                                                                        aria-describedby={`showcase-custom-size-${item.id}`}
+                                                                        onChange={(event) => {
+                                                                            const rawSize = event.target.value;
+                                                                            setCustomSizeDrafts((current) => ({
+                                                                                ...current,
+                                                                                [item.id]: rawSize
+                                                                            }));
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: {
+                                                                                            ...candidate.recipe,
+                                                                                            output: setShowcaseRecipeOutputCustomSize(
+                                                                                                candidate.recipe.output,
+                                                                                                rawSize
+                                                                                            )
+                                                                                        }
+                                                                                    })
+                                                                                )
+                                                                            );
+                                                                        }}
+                                                                    />
+                                                                    <span
+                                                                        id={`showcase-custom-size-${item.id}`}
+                                                                        className='text-muted-foreground block text-xs'>
+                                                                        {t('admin.showcases.field.customSizeHint')}
+                                                                    </span>
                                                                 </label>
                                                                 <label className='space-y-1.5 text-sm'>
                                                                     <span className='font-medium'>
@@ -1075,23 +1703,95 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                                               ...candidate,
                                                                                               recipe: {
                                                                                                   ...candidate.recipe,
-                                                                                                  output: {
-                                                                                                      ...(candidate
-                                                                                                          .recipe
-                                                                                                          .output ??
-                                                                                                          {}),
-                                                                                                      n:
-                                                                                                          Number(
-                                                                                                              event
-                                                                                                                  .target
-                                                                                                                  .value
-                                                                                                          ) || 1
-                                                                                                  }
+                                                                                                  output: setShowcaseRecipeOutputInteger(
+                                                                                                      candidate.recipe
+                                                                                                          .output,
+                                                                                                      'n',
+                                                                                                      Number(
+                                                                                                          event.target
+                                                                                                              .value
+                                                                                                      ) || 1
+                                                                                                  )
                                                                                               }
                                                                                           }
                                                                                         : candidate
                                                                                 )
                                                                             }))
+                                                                        }
+                                                                    />
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputFormat')}
+                                                                    </span>
+                                                                    <select
+                                                                        value={item.recipe.output?.outputFormat ?? ''}
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: {
+                                                                                            ...candidate.recipe,
+                                                                                            output: setShowcaseRecipeOutputEnum(
+                                                                                                candidate.recipe.output,
+                                                                                                'outputFormat',
+                                                                                                event.target.value as
+                                                                                                    | ''
+                                                                                                    | 'png'
+                                                                                                    | 'jpeg'
+                                                                                                    | 'webp'
+                                                                                            )
+                                                                                        }
+                                                                                    })
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                        className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'>
+                                                                        <option value=''>auto</option>
+                                                                        <option value='png'>png</option>
+                                                                        <option value='jpeg'>jpeg</option>
+                                                                        <option value='webp'>webp</option>
+                                                                    </select>
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputCompression')}
+                                                                    </span>
+                                                                    <Input
+                                                                        type='number'
+                                                                        min={0}
+                                                                        max={100}
+                                                                        value={
+                                                                            item.recipe.output?.outputCompression ?? ''
+                                                                        }
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: {
+                                                                                            ...candidate.recipe,
+                                                                                            output: setShowcaseRecipeOutputInteger(
+                                                                                                candidate.recipe.output,
+                                                                                                'outputCompression',
+                                                                                                event.target.value
+                                                                                                    ? Number(
+                                                                                                          event.target
+                                                                                                              .value
+                                                                                                      )
+                                                                                                    : null
+                                                                                            )
+                                                                                        }
+                                                                                    })
+                                                                                )
+                                                                            )
                                                                         }
                                                                     />
                                                                 </label>
@@ -1128,14 +1828,22 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                             </Tabs>
                             <div className='flex flex-wrap gap-2'>
                                 <Button onClick={() => void saveDraft()} disabled={!canWrite || Boolean(busyKey)}>
-                                    {busyKey === 'save' ? <Loader2 className='animate-spin' /> : <Save />}
+                                    {busyKey === 'save' ? (
+                                        <Loader2 className='animate-spin motion-reduce:animate-none' />
+                                    ) : (
+                                        <Save />
+                                    )}
                                     {t('admin.showcases.save')}
                                 </Button>
                                 <Button
                                     variant='outline'
                                     onClick={() => void previewDraft()}
                                     disabled={Boolean(busyKey)}>
-                                    {busyKey === 'preview' ? <Loader2 className='animate-spin' /> : <Eye />}
+                                    {busyKey === 'preview' ? (
+                                        <Loader2 className='animate-spin motion-reduce:animate-none' />
+                                    ) : (
+                                        <Eye />
+                                    )}
                                     {t('admin.showcases.preview')}
                                 </Button>
                                 {selectedTopic && !isCreating ? (
@@ -1248,26 +1956,147 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}>
+            <Dialog open={mediaDialogOpen} onOpenChange={setMediaDialogOpen}>
+                <DialogContent className='max-w-5xl'>
+                    <DialogHeader>
+                        <DialogTitle>{t('admin.showcases.media.dialogTitle')}</DialogTitle>
+                        <DialogDescription>{t('admin.showcases.media.dialogDescription')}</DialogDescription>
+                    </DialogHeader>
+                    <div className='grid max-h-[70dvh] gap-4 overflow-y-auto pr-1 lg:grid-cols-[minmax(17rem,0.7fr)_minmax(0,1.3fr)]'>
+                        <div className='app-panel-subtle space-y-3 rounded-xl border p-3'>
+                            <p className='text-sm font-semibold'>{t('admin.showcases.media.uploadTitle')}</p>
+                            <Input
+                                type='file'
+                                accept='image/jpeg,image/png,image/webp,image/avif'
+                                disabled={!canWrite}
+                                onChange={(event) =>
+                                    setMediaUpload((value) => ({ ...value, file: event.target.files?.[0] ?? null }))
+                                }
+                            />
+                            {(['sourceLabel', 'licenseNote', 'altZhCN', 'altEnUS'] as const).map((field) => (
+                                <label key={field} className='block space-y-1 text-sm'>
+                                    <span className='font-medium'>{t(`admin.showcases.media.${field}`)}</span>
+                                    {field === 'licenseNote' ? (
+                                        <Textarea
+                                            value={mediaUpload[field]}
+                                            disabled={!canWrite}
+                                            className='min-h-20'
+                                            onChange={(event) =>
+                                                setMediaUpload((value) => ({ ...value, [field]: event.target.value }))
+                                            }
+                                        />
+                                    ) : (
+                                        <Input
+                                            value={mediaUpload[field]}
+                                            disabled={!canWrite}
+                                            onChange={(event) =>
+                                                setMediaUpload((value) => ({ ...value, [field]: event.target.value }))
+                                            }
+                                        />
+                                    )}
+                                </label>
+                            ))}
+                            <Button
+                                className='w-full'
+                                disabled={!canWrite || !mediaUpload.file || Boolean(busyKey)}
+                                onClick={() => void uploadManagedAsset()}>
+                                {busyKey === 'media-upload' ? (
+                                    <Loader2 className='animate-spin motion-reduce:animate-none' />
+                                ) : (
+                                    <ImagePlus />
+                                )}
+                                {t('admin.showcases.media.uploadAndUse')}
+                            </Button>
+                        </div>
+                        <div className='grid content-start gap-3 sm:grid-cols-2'>
+                            {managedAssets.map((asset) => (
+                                <div key={asset.id} className='app-panel-subtle overflow-hidden rounded-xl border'>
+                                    <ShowcaseMedia
+                                        asset={asset.catalogAsset}
+                                        className='aspect-[4/3] w-full object-cover'
+                                    />
+                                    <div className='space-y-2 p-3'>
+                                        <p className='line-clamp-2 text-sm font-medium'>{asset.alt['zh-CN']}</p>
+                                        <p className='text-muted-foreground text-xs' data-i18n-skip='true'>
+                                            {asset.width}×{asset.height} · {Math.round(asset.byteSize / 1024)} KB
+                                        </p>
+                                        <p className='text-muted-foreground line-clamp-2 text-xs'>
+                                            {asset.sourceLabel}
+                                        </p>
+                                        <div className='flex gap-2'>
+                                            <Button
+                                                size='sm'
+                                                className='flex-1'
+                                                onClick={() => assignManagedAsset(asset)}>
+                                                {t('admin.showcases.media.use')}
+                                            </Button>
+                                            <Button
+                                                size='icon'
+                                                variant='outline'
+                                                disabled={!canWrite}
+                                                aria-label={t('admin.showcases.media.delete')}
+                                                onClick={() => {
+                                                    setMediaDialogOpen(false);
+                                                    setConfirmAction({ kind: 'deleteAsset', asset });
+                                                }}>
+                                                <Trash2 />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            {managedAssets.length === 0 ? (
+                                <div className='border-border text-muted-foreground rounded-xl border border-dashed px-4 py-12 text-center text-sm sm:col-span-2'>
+                                    {t('admin.showcases.media.empty')}
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={Boolean(confirmAction)}
+                onOpenChange={(open) => {
+                    if (open || !confirmAction) return;
+                    const returnToMedia = confirmAction.kind === 'deleteAsset';
+                    setConfirmAction(null);
+                    if (returnToMedia) setMediaDialogOpen(true);
+                }}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>
-                            {confirmAction ? t(`admin.showcases.confirm.${confirmAction.kind}.title`) : ''}
+                            {confirmAction
+                                ? confirmAction.kind === 'deleteAsset'
+                                    ? t('admin.showcases.media.deleteTitle')
+                                    : t(`admin.showcases.confirm.${confirmAction.kind}.title`)
+                                : ''}
                         </DialogTitle>
                         <DialogDescription>
                             {confirmAction
-                                ? t(`admin.showcases.confirm.${confirmAction.kind}.description`, {
-                                      title: confirmAction.topic.draft.topic.title['zh-CN']
-                                  })
+                                ? confirmAction.kind === 'deleteAsset'
+                                    ? t('admin.showcases.media.deleteDescription', {
+                                          title: confirmAction.asset.alt['zh-CN']
+                                      })
+                                    : t(`admin.showcases.confirm.${confirmAction.kind}.description`, {
+                                          title: confirmAction.topic.draft.topic.title['zh-CN']
+                                      })
                                 : ''}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant='outline' onClick={() => setConfirmAction(null)} disabled={Boolean(busyKey)}>
+                        <Button
+                            variant='outline'
+                            onClick={() => {
+                                const returnToMedia = confirmAction?.kind === 'deleteAsset';
+                                setConfirmAction(null);
+                                if (returnToMedia) setMediaDialogOpen(true);
+                            }}
+                            disabled={Boolean(busyKey)}>
                             {t('common.cancel')}
                         </Button>
                         <Button onClick={() => void executeConfirmedAction()} disabled={Boolean(busyKey)}>
-                            {busyKey ? <Loader2 className='animate-spin' /> : <Sparkles />}
+                            {busyKey ? <Loader2 className='animate-spin motion-reduce:animate-none' /> : <Sparkles />}
                             {t('admin.showcases.confirm.action')}
                         </Button>
                     </DialogFooter>

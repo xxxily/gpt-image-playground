@@ -10,7 +10,7 @@ import {
 } from './showcase-navigation';
 import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
-import type { ShowcaseCase, ShowcaseCatalog, ShowcaseTopic } from '@/lib/showcase';
+import { isExecutableShowcaseCase, type ShowcaseCase, type ShowcaseCatalog, type ShowcaseTopic } from '@/lib/showcase';
 import { getShowcaseCases } from '@/lib/showcase-client';
 import {
     AlertTriangle,
@@ -21,6 +21,7 @@ import {
     ImagePlus,
     Info,
     Layers3,
+    LockKeyhole,
     Sparkles
 } from 'lucide-react';
 import Link from 'next/link';
@@ -237,8 +238,20 @@ export function ShowcaseCaseDetail({
     const cases = getShowcaseCases(catalog, topic);
     const currentIndex = cases.findIndex((item) => item.id === showcaseCase.id);
     const nextCase = currentIndex >= 0 ? cases[currentIndex + 1] : undefined;
-    const output = showcaseCase.recipe.output;
-    const prompt = getLocalizedShowcaseText(showcaseCase.recipe.prompt, language);
+    const executable = isExecutableShowcaseCase(showcaseCase);
+    const output = executable ? showcaseCase.recipe.output : undefined;
+    const prompt = executable
+        ? getLocalizedShowcaseText(showcaseCase.recipe.prompt, language)
+        : showcaseCase.readOnlyPrompt
+          ? getLocalizedShowcaseText(showcaseCase.readOnlyPrompt, language)
+          : t('showcase.case.unsupportedDescription', { version: showcaseCase.unsupportedRecipeVersion ?? '?' });
+    const taskModeLabel = executable
+        ? t(
+              showcaseCase.recipe.taskMode === 'image-edit'
+                  ? 'showcase.recipe.imageEdit'
+                  : 'showcase.recipe.imageGenerate'
+          )
+        : t('showcase.recipe.unknown');
 
     return (
         <div className='space-y-5'>
@@ -268,7 +281,11 @@ export function ShowcaseCaseDetail({
                                 {t(`showcase.difficulty.${showcaseCase.difficulty}`)}
                             </span>
                             <span className='text-on-panel-faint text-xs'>
-                                {t('showcase.case.referenceCount', { count: showcaseCase.recipe.inputSlots.length })}
+                                {executable
+                                    ? t('showcase.case.referenceCount', {
+                                          count: showcaseCase.recipe.inputSlots.length
+                                      })
+                                    : t('showcase.case.inputRequirementsUnknown')}
                             </span>
                         </div>
                         <h1 className='text-foreground mt-3 text-2xl font-semibold tracking-tight sm:text-3xl'>
@@ -281,34 +298,43 @@ export function ShowcaseCaseDetail({
                         <div className='mt-5 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3'>
                             <div className='app-panel-subtle rounded-lg border p-2.5'>
                                 <span className='text-on-panel-faint block'>{t('showcase.recipe.mode')}</span>
-                                <strong className='text-foreground mt-1 block font-medium'>
-                                    {t('showcase.recipe.imageEdit')}
-                                </strong>
+                                <strong className='text-foreground mt-1 block font-medium'>{taskModeLabel}</strong>
                             </div>
                             <div className='app-panel-subtle rounded-lg border p-2.5'>
                                 <span className='text-on-panel-faint block'>{t('showcase.recipe.size')}</span>
                                 <strong className='text-foreground mt-1 block truncate font-medium'>
-                                    {output?.size ?? t('showcase.recipe.auto')}
+                                    {!executable
+                                        ? t('showcase.recipe.unknown')
+                                        : (output?.size ?? t('showcase.recipe.auto'))}
                                 </strong>
                             </div>
                             <div className='app-panel-subtle col-span-2 rounded-lg border p-2.5 sm:col-span-1'>
                                 <span className='text-on-panel-faint block'>{t('showcase.recipe.quality')}</span>
                                 <strong className='text-foreground mt-1 block font-medium'>
-                                    {output?.quality
-                                        ? t(`showcase.recipe.quality.${output.quality}`)
-                                        : t('showcase.recipe.auto')}
+                                    {!executable
+                                        ? t('showcase.recipe.unknown')
+                                        : output?.quality
+                                          ? t(`showcase.recipe.quality.${output.quality}`)
+                                          : t('showcase.recipe.auto')}
                                 </strong>
                             </div>
                         </div>
 
-                        <Button asChild size='lg' className='mt-5 w-full'>
-                            <Link href={buildShowcaseWorkbenchHref(topic.slug, showcaseCase.slug)}>
-                                <Sparkles aria-hidden='true' />
-                                {t('showcase.case.start')}
-                            </Link>
-                        </Button>
+                        {executable ? (
+                            <Button asChild size='lg' className='mt-5 w-full'>
+                                <Link href={buildShowcaseWorkbenchHref(topic.slug, showcaseCase.slug)}>
+                                    <Sparkles aria-hidden='true' />
+                                    {t('showcase.case.start')}
+                                </Link>
+                            </Button>
+                        ) : (
+                            <Button size='lg' className='mt-5 w-full' disabled>
+                                <LockKeyhole aria-hidden='true' />
+                                {t('showcase.case.readOnly')}
+                            </Button>
+                        )}
                         <p className='text-on-panel-faint mt-2 text-center text-xs leading-5'>
-                            {t('showcase.case.startHint')}
+                            {executable ? t('showcase.case.startHint') : t('showcase.case.unsupportedHint')}
                         </p>
                     </div>
                 </div>
@@ -324,35 +350,43 @@ export function ShowcaseCaseDetail({
                             {t('showcase.case.inputsTitle')}
                         </h2>
                     </div>
-                    <p className='text-on-panel-muted mt-2 text-sm leading-6'>
-                        {getLocalizedShowcaseText(showcaseCase.inputGuidance, language)}
-                    </p>
-                    <ol className='mt-4 space-y-2'>
-                        {[...showcaseCase.recipe.inputSlots]
-                            .sort((left, right) => left.workbenchOrder - right.workbenchOrder)
-                            .map((slot, index) => (
-                                <li key={slot.id} className='app-panel-subtle flex gap-3 rounded-xl border p-3'>
-                                    <span className='bg-foreground text-background flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold'>
-                                        {index + 1}
-                                    </span>
-                                    <div className='min-w-0'>
-                                        <div className='flex flex-wrap items-center gap-2'>
-                                            <strong className='text-foreground text-sm font-medium'>
-                                                {getLocalizedShowcaseText(slot.label, language)}
-                                            </strong>
-                                            <span className='text-on-panel-faint text-[11px]'>
-                                                {slot.required
-                                                    ? t('showcase.input.required')
-                                                    : t('showcase.input.optional')}
+                    {executable ? (
+                        <>
+                            <p className='text-on-panel-muted mt-2 text-sm leading-6'>
+                                {getLocalizedShowcaseText(showcaseCase.inputGuidance, language)}
+                            </p>
+                            <ol className='mt-4 space-y-2'>
+                                {[...showcaseCase.recipe.inputSlots]
+                                    .sort((left, right) => left.workbenchOrder - right.workbenchOrder)
+                                    .map((slot, index) => (
+                                        <li key={slot.id} className='app-panel-subtle flex gap-3 rounded-xl border p-3'>
+                                            <span className='bg-foreground text-background flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold'>
+                                                {index + 1}
                                             </span>
-                                        </div>
-                                        <p className='text-on-panel-muted mt-1 text-xs leading-5'>
-                                            {getLocalizedShowcaseText(slot.description, language)}
-                                        </p>
-                                    </div>
-                                </li>
-                            ))}
-                    </ol>
+                                            <div className='min-w-0'>
+                                                <div className='flex flex-wrap items-center gap-2'>
+                                                    <strong className='text-foreground text-sm font-medium'>
+                                                        {getLocalizedShowcaseText(slot.label, language)}
+                                                    </strong>
+                                                    <span className='text-on-panel-faint text-[11px]'>
+                                                        {slot.required
+                                                            ? t('showcase.input.required')
+                                                            : t('showcase.input.optional')}
+                                                    </span>
+                                                </div>
+                                                <p className='text-on-panel-muted mt-1 text-xs leading-5'>
+                                                    {getLocalizedShowcaseText(slot.description, language)}
+                                                </p>
+                                            </div>
+                                        </li>
+                                    ))}
+                            </ol>
+                        </>
+                    ) : (
+                        <div className='mt-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-4 text-sm leading-6 text-amber-800 dark:text-amber-200'>
+                            {t('showcase.case.inputRequirementsUpgrade')}
+                        </div>
+                    )}
                 </section>
 
                 <section

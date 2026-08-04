@@ -67,6 +67,27 @@ function createBuiltinResult(endpoint: string | null): ShowcaseCatalogLoadResult
     };
 }
 
+export function resolveShowcaseCatalogMediaUrls(catalog: ShowcaseCatalog, endpoint: string): ShowcaseCatalog {
+    let endpointUrl: URL;
+    try {
+        endpointUrl = new URL(endpoint);
+    } catch {
+        return catalog;
+    }
+
+    const assets = catalog.assets.map((asset) => {
+        if (asset.kind !== 'remote-image' || !asset.url.startsWith('/')) return asset;
+        return {
+            ...asset,
+            url: new URL(asset.url, endpointUrl).toString(),
+            ...(asset.thumbnailUrl
+                ? { thumbnailUrl: new URL(asset.thumbnailUrl, endpointUrl).toString() }
+                : {})
+        };
+    });
+    return { ...catalog, assets };
+}
+
 export function resolveShowcaseCatalogEndpoint(config: AppConfig = loadConfig()): string | null {
     if (!isTauriDesktop()) return '/api/showcases';
     return desktopShowcaseServiceConfigFromAppConfig(config).catalogUrl;
@@ -94,7 +115,8 @@ export function readShowcaseCatalogCache(
             return null;
         }
 
-        const catalog = normalizeShowcaseCatalog(parsed.catalog);
+        const normalizedCatalog = normalizeShowcaseCatalog(parsed.catalog, { allowUnsupportedRecipeVersions: true });
+        const catalog = normalizedCatalog ? resolveShowcaseCatalogMediaUrls(normalizedCatalog, parsed.endpoint) : null;
         if (!catalog) return null;
         return {
             version: 1,
@@ -113,7 +135,7 @@ export function writeShowcaseCatalogCache(
     storage: StorageLike | null = getBrowserStorage()
 ): boolean {
     if (!storage) return false;
-    const catalog = normalizeShowcaseCatalog(envelope.catalog);
+    const catalog = normalizeShowcaseCatalog(envelope.catalog, { allowUnsupportedRecipeVersions: true });
     if (!catalog) return false;
 
     try {
@@ -156,7 +178,7 @@ export async function loadShowcaseCatalog(
     options.signal?.addEventListener('abort', abortFromCaller, { once: true });
 
     try {
-        const headers = new Headers({ accept: 'application/json' });
+        const headers = new Headers({ accept: 'application/json', 'x-showcase-client-version': '2' });
         if (cached?.etag) headers.set('if-none-match', cached.etag);
         const response = await fetcher(endpoint, {
             method: 'GET',
@@ -171,8 +193,11 @@ export async function loadShowcaseCatalog(
         if (!response.ok) throw new Error(`Showcase catalog request failed with ${response.status}.`);
 
         const payload = await response.json();
-        const catalog = normalizeShowcaseCatalog(unwrapCatalogPayload(payload));
-        if (!catalog) throw new Error('Showcase catalog response is invalid.');
+        const normalizedCatalog = normalizeShowcaseCatalog(unwrapCatalogPayload(payload), {
+            allowUnsupportedRecipeVersions: true
+        });
+        if (!normalizedCatalog) throw new Error('Showcase catalog response is invalid.');
+        const catalog = resolveShowcaseCatalogMediaUrls(normalizedCatalog, endpoint);
 
         writeShowcaseCatalogCache(
             {

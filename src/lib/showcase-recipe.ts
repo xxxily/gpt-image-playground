@@ -104,6 +104,21 @@ export type ShowcaseModelCompatibility = {
     reasons: ShowcaseModelCompatibilityReason[];
 };
 
+export function sortShowcasePreferredModelIds(
+    modelIds: readonly string[],
+    preferredModelIds: readonly string[] = []
+): string[] {
+    const preferredOrder = new Map(preferredModelIds.map((modelId, index) => [modelId, index]));
+    return modelIds
+        .map((modelId, index) => ({ modelId, index }))
+        .sort((left, right) => {
+            const leftPreferred = preferredOrder.get(left.modelId) ?? Number.MAX_SAFE_INTEGER;
+            const rightPreferred = preferredOrder.get(right.modelId) ?? Number.MAX_SAFE_INTEGER;
+            return leftPreferred - rightPreferred || left.index - right.index;
+        })
+        .map(({ modelId }) => modelId);
+}
+
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const TASK_MODES = new Set<ShowcaseTaskMode>(['image-generate', 'image-edit']);
 const PROMPT_STRATEGIES = new Set<ShowcasePromptStrategy>(['replace', 'append']);
@@ -219,6 +234,10 @@ function normalizeLocalizedText(value: unknown, maxLength: number): ShowcaseLoca
     const enUS = normalizeText(record['en-US'], maxLength);
     if (!zhCN || !enUS) return null;
     return { 'zh-CN': zhCN, 'en-US': enUS };
+}
+
+export function normalizeShowcaseReadOnlyPrompt(value: unknown): ShowcaseLocalizedText | null {
+    return normalizeLocalizedText(value, 12_000);
 }
 
 function normalizeInteger(value: unknown, minimum: number, maximum: number): number | null {

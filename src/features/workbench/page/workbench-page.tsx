@@ -158,11 +158,14 @@ import {
     shouldPromptForConfigPersistence
 } from '@/lib/shared-config';
 import type { ShowcaseAttribution, ShowcaseCatalog, ShowcaseCase, ShowcaseTopic } from '@/lib/showcase';
+import { isExecutableShowcaseCase } from '@/lib/showcase';
+import { trackShowcaseAnalyticsEvent } from '@/lib/showcase-analytics-client';
 import { getShowcaseCase, getShowcaseTopic, loadShowcaseCatalog } from '@/lib/showcase-client';
 import {
     applyShowcasePrompt,
     evaluateShowcaseModelCompatibility,
-    resolveShowcaseRecipeWorkbenchValues
+    resolveShowcaseRecipeWorkbenchValues,
+    sortShowcasePreferredModelIds
 } from '@/lib/showcase-recipe';
 import { getPresetDimensions, resolveImageRequestSize } from '@/lib/size-utils';
 import {
@@ -835,25 +838,29 @@ export default function HomePage() {
     );
     const showcaseRecommendedModels = React.useMemo(() => {
         if (!showcaseGuideCase) return [];
-        return getAllImageModels(appConfig.customImageModels)
-            .filter((model) => {
-                const constraints = getImageReferenceConstraints(model.id, {
-                    customImageModels: appConfig.customImageModels,
-                    outputCount: showcaseGuideCase.recipe.output?.n ?? 1
-                });
-                const compatible = evaluateShowcaseModelCompatibility(showcaseGuideCase.recipe, {
-                    id: model.id,
-                    label: model.label,
-                    supportsEditing: model.supportsEditing,
-                    supportsMask: model.supportsMask,
-                    supportsCustomSize: model.supportsCustomSize,
-                    maxReferenceImages: constraints.maxImages
-                }).compatible;
-                if (!compatible) return false;
-                return Boolean(getProviderCredentialConfig(appConfig, model.provider, model.instanceId).apiKey);
-            })
+        const compatibleModels = getAllImageModels(appConfig.customImageModels).filter((model) => {
+            const constraints = getImageReferenceConstraints(model.id, {
+                customImageModels: appConfig.customImageModels,
+                outputCount: showcaseGuideCase.recipe.output?.n ?? 1
+            });
+            const compatible = evaluateShowcaseModelCompatibility(showcaseGuideCase.recipe, {
+                id: model.id,
+                label: model.label,
+                supportsEditing: model.supportsEditing,
+                supportsMask: model.supportsMask,
+                supportsCustomSize: model.supportsCustomSize,
+                maxReferenceImages: constraints.maxImages
+            }).compatible;
+            if (!compatible) return false;
+            return Boolean(getProviderCredentialConfig(appConfig, model.provider, model.instanceId).apiKey);
+        });
+        const modelsById = new Map(compatibleModels.map((model) => [model.id, model]));
+        return sortShowcasePreferredModelIds(
+            compatibleModels.map((model) => model.id),
+            showcaseGuideCase.recipe.preferredModelIds
+        )
             .slice(0, 3)
-            .map((model) => model.label);
+            .flatMap((modelId) => modelsById.get(modelId)?.label ?? []);
     }, [appConfig, showcaseGuideCase]);
     const getImageReferenceNotice = React.useCallback(
         (issue: Parameters<typeof getImageReferenceValidationIssueMessageDescriptor>[0]) => {
@@ -1515,6 +1522,49 @@ export default function HomePage() {
         appConfig.visionTextHistoryEnabled ? handleVisionTextHistoryEntry : undefined
     );
     const restoredManagedTaskIdsRef = React.useRef<Set<string>>(new Set());
+    const showcaseTaskAnalyticsRef = React.useRef(new Map<string, string>());
+
+    React.useEffect(() => {
+        tasks.forEach((task) => {
+            if (!task.showcaseAttribution) return;
+            const previousStatus = showcaseTaskAnalyticsRef.current.get(task.id);
+            if (!previousStatus) {
+                showcaseTaskAnalyticsRef.current.set(task.id, task.status);
+                trackShowcaseAnalyticsEvent({
+                    event: 'showcase_generation_submit',
+                    topicId: task.showcaseAttribution.topicId,
+                    caseId: task.showcaseAttribution.caseId,
+                    catalogRevision: task.showcaseAttribution.catalogRevision,
+                    recipeVersion: task.showcaseAttribution.recipeVersion,
+                    modelId: task.model
+                });
+            } else if (previousStatus !== task.status) {
+                showcaseTaskAnalyticsRef.current.set(task.id, task.status);
+                if (task.status === 'done') {
+                    trackShowcaseAnalyticsEvent({
+                        event: 'showcase_generation_success',
+                        topicId: task.showcaseAttribution.topicId,
+                        caseId: task.showcaseAttribution.caseId,
+                        catalogRevision: task.showcaseAttribution.catalogRevision,
+                        modelId: task.model
+                    });
+                } else if (task.status === 'error') {
+                    trackShowcaseAnalyticsEvent({
+                        event: 'showcase_generation_failure',
+                        topicId: task.showcaseAttribution.topicId,
+                        caseId: task.showcaseAttribution.caseId,
+                        catalogRevision: task.showcaseAttribution.catalogRevision,
+                        modelId: task.model,
+                        errorCategory: task.errorCategory?.category ?? 'unknown'
+                    });
+                }
+            }
+        });
+        const liveIds = new Set(tasks.map((task) => task.id));
+        for (const id of showcaseTaskAnalyticsRef.current.keys()) {
+            if (!liveIds.has(id)) showcaseTaskAnalyticsRef.current.delete(id);
+        }
+    }, [tasks]);
 
     const syncPendingManagedTasks = React.useCallback(async () => {
         if (isTauriDesktop()) return;
@@ -3840,6 +3890,23 @@ export default function HomePage() {
                 addNotice(t('showcase.notice.caseUnavailable'), 'warning');
                 return;
             }
+            if (!isExecutableShowcaseCase(showcaseCase)) {
+                addNotice(
+                    t('showcase.notice.recipeUnsupported', {
+                        version: showcaseCase.unsupportedRecipeVersion ?? '?'
+                    }),
+                    'warning'
+                );
+                return;
+            }
+            trackShowcaseAnalyticsEvent({
+                event: 'showcase_recipe_prepare',
+                topicId: topic.id,
+                caseId: showcaseCase.id,
+                catalogRevision: result.catalog.catalogRevision,
+                recipeVersion: showcaseCase.recipe.version,
+                entryPoint: 'workbench'
+            });
             setShowcaseCatalog(result.catalog);
             setShowcaseGuideTopic(topic);
             setShowcaseGuideCase(showcaseCase);
@@ -3934,6 +4001,14 @@ export default function HomePage() {
                 caseSlug: showcaseGuideCase.slug,
                 topicTitle: showcaseGuideTopic.title[language],
                 caseTitle: showcaseGuideCase.title[language]
+            });
+            trackShowcaseAnalyticsEvent({
+                event: 'showcase_recipe_apply',
+                topicId: showcaseGuideTopic.id,
+                caseId: showcaseGuideCase.id,
+                catalogRevision: showcaseCatalog?.catalogRevision ?? 'builtin',
+                recipeVersion: showcaseGuideCase.recipe.version,
+                entryPoint: 'workbench'
             });
 
             setShowcaseGuideOpen(false);

@@ -1,5 +1,5 @@
 import { normalizePublicRuntimeConfigUrl } from './public-runtime-config';
-import { normalizeShowcaseRecipe } from './showcase-recipe';
+import { SHOWCASE_RECIPE_VERSION, normalizeShowcaseReadOnlyPrompt, normalizeShowcaseRecipe } from './showcase-recipe';
 import type { ShowcaseLocalizedText, ShowcaseRecipeV1 } from './showcase-recipe';
 
 export type {
@@ -31,6 +31,8 @@ export type ShowcaseRemoteAsset = {
     kind: 'remote-image';
     alt: ShowcaseLocalizedText;
     url: string;
+    thumbnailUrl?: string;
+    managedAssetId?: string;
     mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/avif';
     width?: number;
     height?: number;
@@ -60,6 +62,8 @@ export type ShowcaseCase = {
     inputAssetIds: string[];
     outputAssetIds: string[];
     recipe: ShowcaseRecipeV1;
+    unsupportedRecipeVersion?: number;
+    readOnlyPrompt?: ShowcaseLocalizedText;
 };
 
 export type ShowcaseTopic = {
@@ -99,6 +103,8 @@ export type NormalizeShowcaseCatalogOptions = {
      * remain invalid; the complete public catalog can enforce all references.
      */
     allowDanglingRelatedTopicIds?: boolean;
+    /** Client-only recovery for a single case using a newer integer recipe version. */
+    allowUnsupportedRecipeVersions?: boolean;
 };
 
 /** Non-sensitive provenance attached to a workbench task or history entry. */
@@ -136,7 +142,18 @@ const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const LOCALIZED_TEXT_KEYS = new Set(['zh-CN', 'en-US']);
 const FAQ_KEYS = new Set(['question', 'answer']);
 const PLACEHOLDER_STYLE_KEYS = new Set(['label', 'backgroundColor', 'foregroundColor']);
-const ASSET_KEYS = new Set(['id', 'kind', 'alt', 'placeholder', 'url', 'mimeType', 'width', 'height']);
+const ASSET_KEYS = new Set([
+    'id',
+    'kind',
+    'alt',
+    'placeholder',
+    'url',
+    'thumbnailUrl',
+    'managedAssetId',
+    'mimeType',
+    'width',
+    'height'
+]);
 const CASE_KEYS = new Set([
     'id',
     'topicId',
@@ -151,7 +168,9 @@ const CASE_KEYS = new Set([
     'coverAssetId',
     'inputAssetIds',
     'outputAssetIds',
-    'recipe'
+    'recipe',
+    'unsupportedRecipeVersion',
+    'readOnlyPrompt'
 ]);
 const TOPIC_KEYS = new Set([
     'id',
@@ -194,6 +213,7 @@ const REMOTE_IMAGE_MIME_TYPES = new Set<ShowcaseRemoteAsset['mimeType']>([
 ]);
 const CASE_DIFFICULTIES = new Set<ShowcaseCaseDifficulty>(['beginner', 'intermediate', 'advanced']);
 const SENSITIVE_QUERY_KEYS = /(?:api[-_]?key|access[-_]?token|auth|credential|password|secret|signature)/iu;
+const MANAGED_MEDIA_PATH_PATTERN = /^\/api\/showcase-media\/([a-z0-9][a-z0-9._-]{0,127})(?:\?variant=thumbnail)?$/u;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -276,7 +296,10 @@ function normalizeIdArray(value: unknown, minimumItems: number, maximumItems: nu
 }
 
 function normalizeHttpsAssetUrl(value: unknown): string | null {
-    if (typeof value !== 'string' || !/^https:\/\//iu.test(value.trim())) return null;
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (MANAGED_MEDIA_PATH_PATTERN.test(trimmed)) return trimmed;
+    if (!/^https:\/\//iu.test(trimmed)) return null;
     const normalized = normalizePublicRuntimeConfigUrl(value);
     if (!normalized) return null;
 
@@ -294,6 +317,16 @@ function normalizeHttpsAssetUrl(value: unknown): string | null {
     }
 }
 
+function managedAssetIdFromUrl(value: string): string | null {
+    try {
+        const parsed = value.startsWith('/') ? null : new URL(value);
+        const pathnameAndSearch = parsed ? `${parsed.pathname}${parsed.search}` : value;
+        return MANAGED_MEDIA_PATH_PATTERN.exec(pathnameAndSearch)?.[1] ?? null;
+    } catch {
+        return null;
+    }
+}
+
 function normalizePlaceholderAsset(
     record: UnknownRecord,
     id: string,
@@ -301,6 +334,8 @@ function normalizePlaceholderAsset(
 ): ShowcaseAsset | null {
     if (
         record.url !== undefined ||
+        record.thumbnailUrl !== undefined ||
+        record.managedAssetId !== undefined ||
         record.mimeType !== undefined ||
         record.width !== undefined ||
         record.height !== undefined
@@ -338,11 +373,33 @@ function normalizeRemoteAsset(record: UnknownRecord, id: string, alt: ShowcaseLo
     const mimeType = normalizeEnum(record.mimeType, REMOTE_IMAGE_MIME_TYPES);
     if (!url || !mimeType) return null;
 
+    const thumbnailUrl = record.thumbnailUrl === undefined ? undefined : normalizeHttpsAssetUrl(record.thumbnailUrl);
+    if (record.thumbnailUrl !== undefined && !thumbnailUrl) return null;
+    const managedAssetId = record.managedAssetId === undefined ? undefined : normalizeIdentifier(record.managedAssetId);
+    if (record.managedAssetId !== undefined && !managedAssetId) return null;
+    const urlManagedAssetId = managedAssetIdFromUrl(url);
+    if ((url.startsWith('/') && !managedAssetId) || (managedAssetId && urlManagedAssetId !== managedAssetId))
+        return null;
+    if (thumbnailUrl && managedAssetId) {
+        const thumbnailManagedAssetId = managedAssetIdFromUrl(thumbnailUrl);
+        if (thumbnailManagedAssetId !== managedAssetId || !thumbnailUrl.endsWith('?variant=thumbnail')) {
+            return null;
+        }
+    }
+
     const hasWidth = record.width !== undefined;
     const hasHeight = record.height !== undefined;
     if (hasWidth !== hasHeight) return null;
 
-    const asset: ShowcaseRemoteAsset = { id, kind: 'remote-image', alt, url, mimeType };
+    const asset: ShowcaseRemoteAsset = {
+        id,
+        kind: 'remote-image',
+        alt,
+        url,
+        mimeType,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+        ...(managedAssetId ? { managedAssetId } : {})
+    };
     if (hasWidth && hasHeight) {
         const width = normalizeInteger(record.width, 1, 16_384);
         const height = normalizeInteger(record.height, 1, 16_384);
@@ -351,6 +408,11 @@ function normalizeRemoteAsset(record: UnknownRecord, id: string, alt: ShowcaseLo
         asset.height = height;
     }
     return asset;
+}
+
+export function getManagedShowcaseAssetId(asset: ShowcaseAsset): string | null {
+    if (asset.kind !== 'remote-image') return null;
+    return asset.managedAssetId ?? managedAssetIdFromUrl(asset.url);
 }
 
 export function normalizeShowcaseAsset(value: unknown): ShowcaseAsset | null {
@@ -368,7 +430,7 @@ export function normalizeShowcaseAsset(value: unknown): ShowcaseAsset | null {
 
 export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
     const record = asStrictRecord(value, CASE_KEYS);
-    if (!record) return null;
+    if (!record || record.unsupportedRecipeVersion !== undefined || record.readOnlyPrompt !== undefined) return null;
 
     const id = normalizeIdentifier(record.id);
     const topicId = normalizeIdentifier(record.topicId);
@@ -381,7 +443,7 @@ export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
     const difficulty = normalizeEnum(record.difficulty, CASE_DIFFICULTIES);
     const sortOrder = normalizeInteger(record.sortOrder, 0, 1_000_000);
     const coverAssetId = normalizeIdentifier(record.coverAssetId);
-    const inputAssetIds = normalizeIdArray(record.inputAssetIds, 0, 32);
+    const inputAssetIds = normalizeIdArray(record.inputAssetIds, 0, 16);
     const outputAssetIds = normalizeIdArray(record.outputAssetIds, 1, 32);
     const recipe = normalizeShowcaseRecipe(record.recipe);
 
@@ -423,6 +485,86 @@ export function normalizeShowcaseCase(value: unknown): ShowcaseCase | null {
         outputAssetIds,
         recipe
     };
+}
+
+function peekShowcaseRecipeVersion(value: unknown): number | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    const version = record.version ?? record.schemaVersion;
+    if (record.version !== undefined && record.schemaVersion !== undefined && record.version !== record.schemaVersion) {
+        return null;
+    }
+    return typeof version === 'number' && Number.isInteger(version) ? version : null;
+}
+
+function normalizeShowcaseCaseForDisplay(value: unknown): ShowcaseCase | null {
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const existing = value as UnknownRecord;
+        const markedVersion = normalizeInteger(existing.unsupportedRecipeVersion, 2, Number.MAX_SAFE_INTEGER);
+        if (markedVersion) {
+            const candidateRecord = { ...existing };
+            delete candidateRecord.unsupportedRecipeVersion;
+            delete candidateRecord.readOnlyPrompt;
+            const normalized = normalizeShowcaseCase(candidateRecord);
+            const readOnlyPrompt = normalizeShowcaseReadOnlyPrompt(existing.readOnlyPrompt);
+            return normalized
+                ? {
+                      ...normalized,
+                      unsupportedRecipeVersion: markedVersion,
+                      ...(readOnlyPrompt ? { readOnlyPrompt } : {})
+                  }
+                : null;
+        }
+    }
+    const supported = normalizeShowcaseCase(value);
+    if (supported) return supported;
+
+    const record = asStrictRecord(value, CASE_KEYS);
+    if (!record) return null;
+    const markedVersion = normalizeInteger(record.unsupportedRecipeVersion, 2, Number.MAX_SAFE_INTEGER);
+    const recipeVersion = peekShowcaseRecipeVersion(record.recipe);
+    const unsupportedVersion = markedVersion ?? recipeVersion;
+    if (!unsupportedVersion || unsupportedVersion <= 1) return null;
+    if (markedVersion && recipeVersion && recipeVersion > 1 && markedVersion !== recipeVersion) return null;
+
+    const readOnlyPrompt =
+        record.readOnlyPrompt === undefined
+            ? typeof record.recipe === 'object' && record.recipe !== null && !Array.isArray(record.recipe)
+                ? normalizeShowcaseReadOnlyPrompt((record.recipe as Record<string, unknown>).prompt)
+                : null
+            : normalizeShowcaseReadOnlyPrompt(record.readOnlyPrompt);
+
+    const inputAssetIds = normalizeIdArray(record.inputAssetIds, 0, 32);
+    if (!inputAssetIds) return null;
+    const taskMode = 'image-generate';
+    const fallbackRecipe: ShowcaseRecipeV1 = {
+        version: 1,
+        taskMode,
+        promptStrategy: 'replace',
+        prompt: {
+            'zh-CN': '此案例使用较新的配方版本，请升级客户端后再载入工作台。',
+            'en-US': 'This case uses a newer recipe version. Upgrade the client before loading it into the workbench.'
+        },
+        inputSlots: [],
+        capabilityRequirements: {
+            supportedTaskModes: [taskMode]
+        }
+    };
+    const candidateRecord = { ...record };
+    delete candidateRecord.unsupportedRecipeVersion;
+    delete candidateRecord.readOnlyPrompt;
+    const normalized = normalizeShowcaseCase({ ...candidateRecord, recipe: fallbackRecipe });
+    return normalized
+        ? {
+              ...normalized,
+              unsupportedRecipeVersion: unsupportedVersion,
+              ...(readOnlyPrompt ? { readOnlyPrompt } : {})
+          }
+        : null;
+}
+
+export function isExecutableShowcaseCase(showcaseCase: ShowcaseCase): boolean {
+    return showcaseCase.unsupportedRecipeVersion === undefined;
 }
 
 export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
@@ -538,6 +680,47 @@ function normalizeCollection<T>(
     return result;
 }
 
+function peekShowcaseCaseId(value: unknown): string | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const record = value as UnknownRecord;
+    if (Object.keys(record).some((key) => DANGEROUS_KEYS.has(key))) return null;
+    return normalizeIdentifier(record.id);
+}
+
+function normalizeShowcaseCasesForDisplay(
+    value: unknown
+): { cases: ShowcaseCase[]; skippedFutureCaseIds: Set<string> } | null {
+    const source = asStrictArray(value);
+    if (!source || source.length > 4_096) return null;
+
+    const cases: ShowcaseCase[] = [];
+    const skippedFutureCaseIds = new Set<string>();
+    const sourceIds = new Set<string>();
+    for (const item of source) {
+        const caseId = peekShowcaseCaseId(item);
+        if (!caseId || sourceIds.has(caseId)) return null;
+        sourceIds.add(caseId);
+
+        const supported = normalizeShowcaseCase(item);
+        if (supported) {
+            cases.push(supported);
+            continue;
+        }
+        const version =
+            typeof item === 'object' && item !== null && !Array.isArray(item)
+                ? (normalizeInteger((item as UnknownRecord).unsupportedRecipeVersion, 2, Number.MAX_SAFE_INTEGER) ??
+                  peekShowcaseRecipeVersion((item as UnknownRecord).recipe))
+                : null;
+        if (!version || version <= SHOWCASE_RECIPE_VERSION) return null;
+        const displayCase = normalizeShowcaseCaseForDisplay(item);
+        if (displayCase) cases.push(displayCase);
+        else skippedFutureCaseIds.add(caseId);
+    }
+    return { cases, skippedFutureCaseIds };
+}
+
 function hasDuplicate<T>(items: T[], getValue: (item: T) => string): boolean {
     const seen = new Set<string>();
     for (const item of items) {
@@ -561,32 +744,45 @@ export function normalizeShowcaseCatalog(
     const catalogRevision = normalizeDisplayText(record.catalogRevision, 128);
     const generatedAt = normalizeInteger(record.generatedAt, 1, Number.MAX_SAFE_INTEGER);
     const contentNotice = normalizeLocalizedText(record.contentNotice, 1_000);
-    const topics = normalizeCollection(record.topics, normalizeShowcaseTopic, 256);
-    const cases = normalizeCollection(record.cases, normalizeShowcaseCase, 4_096);
+    const rawTopics = normalizeCollection(record.topics, normalizeShowcaseTopic, 256);
+    const displayCases = options.allowUnsupportedRecipeVersions ? normalizeShowcaseCasesForDisplay(record.cases) : null;
+    const cases = options.allowUnsupportedRecipeVersions
+        ? (displayCases?.cases ?? null)
+        : normalizeCollection(record.cases, normalizeShowcaseCase, 4_096);
     const assets = normalizeCollection(record.assets, normalizeShowcaseAsset, 16_384);
     if (
         !catalogRevision ||
         !REVISION_PATTERN.test(catalogRevision) ||
         generatedAt === null ||
         !contentNotice ||
-        !topics ||
+        !rawTopics ||
         !cases ||
         !assets
     ) {
         return null;
     }
 
+    const skippedFutureCaseIds = displayCases?.skippedFutureCaseIds ?? new Set<string>();
+    const topics = rawTopics
+        .map((topic) => ({
+            ...topic,
+            caseIds: topic.caseIds.filter((caseId) => !skippedFutureCaseIds.has(caseId))
+        }))
+        .filter((topic) => topic.caseIds.length > 0);
+    const retainedTopicIds = new Set(topics.map((topic) => topic.id));
+    const retainedCases = cases.filter((showcaseCase) => retainedTopicIds.has(showcaseCase.topicId));
+
     if (
         hasDuplicate(topics, (topic) => topic.id) ||
         hasDuplicate(topics, (topic) => topic.slug) ||
-        hasDuplicate(cases, (showcaseCase) => showcaseCase.id) ||
+        hasDuplicate(retainedCases, (showcaseCase) => showcaseCase.id) ||
         hasDuplicate(assets, (asset) => asset.id)
     ) {
         return null;
     }
 
     const topicById = new Map(topics.map((topic) => [topic.id, topic]));
-    const caseById = new Map(cases.map((showcaseCase) => [showcaseCase.id, showcaseCase]));
+    const caseById = new Map(retainedCases.map((showcaseCase) => [showcaseCase.id, showcaseCase]));
     const assetIds = new Set(assets.map((asset) => asset.id));
     const ownedCaseIds = new Set<string>();
 
@@ -609,7 +805,7 @@ export function normalizeShowcaseCatalog(
         }
     }
 
-    for (const showcaseCase of cases) {
+    for (const showcaseCase of retainedCases) {
         if (!topicById.has(showcaseCase.topicId) || !ownedCaseIds.has(showcaseCase.id)) return null;
         const referencedAssetIds = [
             showcaseCase.coverAssetId,
@@ -625,7 +821,7 @@ export function normalizeShowcaseCatalog(
         generatedAt,
         contentNotice,
         topics: [...topics].sort((left, right) => left.sortOrder - right.sortOrder),
-        cases: [...cases].sort((left, right) => left.sortOrder - right.sortOrder),
+        cases: [...retainedCases].sort((left, right) => left.sortOrder - right.sortOrder),
         assets
     };
 }

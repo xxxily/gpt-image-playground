@@ -12,6 +12,7 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
+import { trackShowcaseAnalyticsEvent } from '@/lib/showcase-analytics-client';
 import { getShowcaseCase, getShowcaseTopic } from '@/lib/showcase-client';
 import { Compass, Home, RefreshCw, RotateCcw, Search, SearchX, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
@@ -61,8 +62,34 @@ export function ShowcaseTopicsPage() {
         : 'all';
     const tagFilter = searchParams.get('tag')?.trim() ?? '';
     const [queryDraft, setQueryDraft] = React.useState(queryParam);
+    const trackedOpensRef = React.useRef(new Set<string>());
 
     React.useEffect(() => setQueryDraft(queryParam), [queryParam]);
+
+    React.useEffect(() => {
+        if (state.isLoading || !topic) return;
+        const topicKey = `topic:${topic.id}`;
+        if (!trackedOpensRef.current.has(topicKey)) {
+            trackedOpensRef.current.add(topicKey);
+            trackShowcaseAnalyticsEvent({
+                event: 'showcase_open',
+                topicId: topic.id,
+                catalogRevision: state.catalog.catalogRevision,
+                entryPoint: showcaseCase ? 'case' : 'directory'
+            });
+        }
+        if (!showcaseCase) return;
+        const caseKey = `case:${showcaseCase.id}`;
+        if (trackedOpensRef.current.has(caseKey)) return;
+        trackedOpensRef.current.add(caseKey);
+        trackShowcaseAnalyticsEvent({
+            event: 'showcase_case_open',
+            topicId: topic.id,
+            caseId: showcaseCase.id,
+            catalogRevision: state.catalog.catalogRevision,
+            entryPoint: 'topic'
+        });
+    }, [showcaseCase, state.catalog.catalogRevision, state.isLoading, topic]);
 
     const allTags = React.useMemo(() => {
         const values = new Map<string, string>();
@@ -149,7 +176,7 @@ export function ShowcaseTopicsPage() {
                         className='text-on-panel-muted flex items-center gap-2 text-sm'
                         role='status'
                         aria-live='polite'>
-                        <RefreshCw className='size-4 animate-spin' aria-hidden='true' />
+                        <RefreshCw className='size-4 animate-spin motion-reduce:animate-none' aria-hidden='true' />
                         {t('showcase.page.loading')}
                     </div>
                 </div>
@@ -207,7 +234,10 @@ export function ShowcaseTopicsPage() {
                 role='status'
                 aria-live='polite'>
                 {state.isLoading || state.source === 'cache' ? (
-                    <RefreshCw className={`size-3 ${state.isLoading ? 'animate-spin' : ''}`} aria-hidden='true' />
+                    <RefreshCw
+                        className={`size-3 motion-reduce:animate-none ${state.isLoading ? 'animate-spin' : ''}`}
+                        aria-hidden='true'
+                    />
                 ) : null}
                 {state.isLoading
                     ? t('showcase.source.loading')

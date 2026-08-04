@@ -12,10 +12,10 @@ function configuredShowcaseOrigins(): Set<string> {
 
 export function getShowcaseCorsHeaders(request: Request): Headers {
     const headers = new Headers({
-        'access-control-allow-methods': 'GET, OPTIONS',
-        'access-control-allow-headers': 'Accept, If-None-Match',
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'access-control-allow-headers': 'Accept, Content-Type, If-None-Match, X-Showcase-Client-Version',
         'access-control-expose-headers': 'ETag',
-        vary: 'Origin, Accept-Encoding'
+        vary: 'Origin, Accept-Encoding, X-Showcase-Client-Version'
     });
     const origin = request.headers.get('origin')?.trim();
     if (origin && configuredShowcaseOrigins().has(origin)) {
