@@ -7,7 +7,7 @@
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)         |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                   |
-| 提交状态 | 功能提交 `ef1fa43`、发布提交 `23f9cba`、annotated tag `v2.15.8`、`master` 与 tag push 均已完成；Action 和 129 部署已验收。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
+| 提交状态 | 功能提交 `ef1fa43`、发布提交 `23f9cba`、发布后报告收尾提交 `1492844`、annotated tag `v2.15.8`、`master` 与 tag push 均已完成；Action 和 129 部署已验收。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
 
 ## 范围核对
 
