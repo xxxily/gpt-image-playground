@@ -7,7 +7,7 @@
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)         |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                   |
-| 提交状态 | 既有 `v2.15.6` / `v2.15.7` 已发布；本轮新增实现已完成本地质量门，目标补丁版本为 `v2.15.8`，commit/tag/push/Action/129 状态将在发布完成后回填。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
+| 提交状态 | 功能提交 `ef1fa43`、发布提交 `23f9cba`、annotated tag `v2.15.8`、`master` 与 tag push 均已完成；Action 和 129 部署已验收。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
 
 ## 范围核对
 
@@ -195,7 +195,21 @@
 | 未来 recipe 浏览器 | 拦截 `/api/showcases`，把一个真实案例改为 recipe v2 并加入未知 `workflowScript` | 卡片显示“需要更新客户端”且无“跟着创作”；详情显示“输入要求未知”和只读 prompt；deep-link 被消费后不打开 Guide、不写入 prompt、不执行未知字段 |
 | 清理 | 关闭 `v2158` / `v2158future` 浏览器会话并停止 3108 临时服务 | 已完成；临时 DB 与媒体目录位于 `/tmp`，不纳入仓库 |
 
-发布完成后继续回填：功能/发布 commit、annotated tag、push、Action run、正式 Release 资产、129 release/systemd/路由和 Outline 操作日志。
+## v2.15.8 发布与生产复验（2026-08-04 11:14–11:45 CST）
+
+| 项目 | 结果 |
+| ---- | ---- |
+| 提交与 tag | `ef1fa43 feat(showcase): add managed media and funnel insights`；`23f9cba chore: release v2.15.8`；annotated tag `v2.15.8`，`master` 与 tag 均已推送 |
+| Action | Run `30874164460` 完成且为 `success`；发布元数据/Web、Release notes、Android、Windows、Linux、macOS、Publish Release 共 7 个 jobs 全部成功 |
+| Release | 正式 Release 非 draft、非 prerelease，共 15 个资产；包含 DMG/app updater、EXE/MSI、deb/rpm/AppImage、相应签名、release-signed Android APK 和 `latest.json` |
+| 129 | `current` 指向 `20260804112334-v2.15.8`，systemd `active`，Node `20.20.2`，构建后端 `161-docker`，native `linux-glibc228`；运行包约 47 MB，目录约 147 MB |
+| HTTP | `/`、`/topics`、`/api/showcases` 返回 200；`/admin`、`/admin/showcases` 返回 307 并跳转 `/admin/login`；目录为 6 个专题、24 个案例、56 个媒体，ETag 条件请求返回 304 |
+| SQLite | 按 `src/lib/server/db.ts` 的真实路径规则只读打开生产库；`showcase_assets`、`showcase_publication_assets`、`showcase_events` 均存在且当前 0 行，`PRAGMA quick_check = ok` |
+| 安全与回滚 | 两项认证 secret 只检查存在性且均保留；最新环境备份 `.env.20260804113001`；上一回滚目录 `20260804084729-v2.15.7` |
+| 161 | artifact 48,698,129 bytes，SHA-256 `7d6a60c0ea2dd7a49ddbd5ae7b94254ff47a548f336bc5465126b2f78a2ab616`；source 中无 `.env.production` / `.env.local` |
+| 明确跳过 | 142 按 `RELEASE_PROCESS.md` 暂停；桌面包与 Android APK 未执行安装级真机验收 |
+
+详细发布证据见 [v2.15.8 发布与构建报告](./2026-08-04-release-2.15.8.md)。Outline：需求 `/doc/gpt-image-playground-U4dlPsf2LV`，持续报告 `/doc/5lit6aky5qgi5l6l5lio5byv5a85byp5yib5l2c6io95yqb5a6e546w5lio5yr5bid5oql5zgk-RIyic3iPPT`，发布报告 `/doc/gpt-image-playground-v2158-hDVXX80dEC`，129 `/doc/gpt-image-playground-v2158-129-oxWHSApp9m`，161 `/doc/gpt-image-playground-v2158-161-2oR6uARHmD`。
 
 ## 后续建议
 
