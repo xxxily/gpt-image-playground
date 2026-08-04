@@ -54,6 +54,8 @@ step() {
 
 SHOW_ENV=false
 BUILD_ONLY=false
+CHECK_ENV_ONLY=false
+CHECK_BUILD_ENV_ONLY=false
 OPENAI_KEY=""
 OPENAI_BASE_URL="https://api.openai.com/v1"
 APP_PASSWORD=""
@@ -82,6 +84,8 @@ Options:
   --proxy HOST:PORT      Use a SOCKS5 proxy for SSH, for example 127.0.0.1:7890
   --backend BACKEND      Build backend: auto, 161, mac-docker, or mac-host
   -e, --env              Print remote environment keys with values hidden
+  --check-env            Resolve the deployment environment and verify required keys without building or deploying
+  --check-build-env      Resolve the 161/Mac build environment and verify production secrets are absent
   --build                Build the local Linux x64 runtime bundle only
   -h, --help             Show help
 
@@ -144,6 +148,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -e|--env)
             SHOW_ENV=true
+            shift
+            ;;
+        --check-env)
+            CHECK_ENV_ONLY=true
+            shift
+            ;;
+        --check-build-env)
+            CHECK_BUILD_ENV_ONLY=true
             shift
             ;;
         --build)
@@ -256,6 +268,15 @@ for (const line of lines) {
   process.exit(0);
 }
 NODE
+}
+
+dotenv_value_is_nonempty() {
+    local file="$1"
+    local key="$2"
+    local value=""
+
+    value="$(read_dotenv_value "$file" "$key")"
+    [[ "$value" =~ [^[:space:]] ]]
 }
 
 validate_supported_dotenv_syntax() {
@@ -431,6 +452,29 @@ secret_env_value() {
     printf '%s' "$value"
 }
 
+# Return the original dotenv assignment for a production secret already
+# persisted on 129. Keeping the assignment intact avoids decoding/re-quoting
+# secret material in the local shell and lets the remote environment remain
+# the source of truth when a release worktree only contains .env.production.
+remote_secret_env_assignment() {
+    local key="$1"
+    local value=""
+
+    value="$(remote_ssh "
+        for file in '$SHARED_DIR/.env' '$REMOTE_DIR/.env'; do
+            if [ -f \"\$file\" ]; then
+                line=\"\$(grep -m1 -E '^${key}[[:space:]]*=' \"\$file\" || true)\"
+                if [ -n \"\$line\" ]; then
+                    printf '%s' \"\$line\"
+                    exit 0
+                fi
+            fi
+        done
+    " 2>/dev/null || true)"
+
+    printf '%s' "$value"
+}
+
 export_secret_env_values() {
     local key value
 
@@ -473,15 +517,42 @@ fs.writeFileSync(file, text);
 NODE
 }
 
+remove_env_key() {
+    local file="$1"
+    local key="$2"
+
+    node - "$file" "$key" <<'NODE'
+const fs = require('fs');
+const [file, key] = process.argv.slice(2);
+const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+const keyPattern = new RegExp(`^${key}\\s*=`);
+let text = lines.filter((line) => !keyPattern.test(line)).join('\n');
+if (!text.endsWith('\n')) text += '\n';
+fs.writeFileSync(file, text);
+NODE
+}
+
 build_remote_env_file() {
+    local include_local_secrets="${1:-true}"
+    local inherit_remote_secrets="${2:-false}"
     DEPLOY_ENV_FILE="$(mktemp /tmp/gpt-image-playground-env.XXXXXX)"
     cp "$LOCAL_ENV_FILE" "$DEPLOY_ENV_FILE"
 
-    local key value
+    local key value remote_assignment
     for key in BETTER_AUTH_SECRET ADMIN_BOOTSTRAP_SECRET; do
-        value="$(secret_env_value "$key")"
+        if [ "$include_local_secrets" = true ]; then
+            value="$(secret_env_value "$key")"
+        else
+            value=""
+            remove_env_key "$DEPLOY_ENV_FILE" "$key"
+        fi
         if [ -n "$value" ] && [ -z "$(read_dotenv_value "$DEPLOY_ENV_FILE" "$key")" ]; then
             write_env_key "$DEPLOY_ENV_FILE" "$key" "$value"
+        elif [ "$inherit_remote_secrets" = true ] && [ -z "$(read_dotenv_value "$DEPLOY_ENV_FILE" "$key")" ]; then
+            remote_assignment="$(remote_secret_env_assignment "$key")"
+            if [ -n "$remote_assignment" ]; then
+                printf '%s\n' "$remote_assignment" >> "$DEPLOY_ENV_FILE"
+            fi
         fi
     done
 }
@@ -856,7 +927,10 @@ build_runtime_bundle_remote_161() {
     remote_build_env="$remote_source/.env.production"
 
     sync_source_to_remote_build_host
-    build_remote_env_file
+    # The 161 build host only needs public build configuration. Never copy
+    # production-only secrets there; those are merged on 129 after the bundle
+    # has been built and uploaded.
+    build_remote_env_file false false
     upload_build_host_file "$DEPLOY_ENV_FILE" "$remote_build_env"
     rm -f "$DEPLOY_ENV_FILE"
 
@@ -912,7 +986,7 @@ build_runtime_bundle_local_docker() {
     local_build_env="$local_source/.env.production"
 
     sync_source_to_local_docker_build_dir
-    build_remote_env_file
+    build_remote_env_file false false
     cp "$DEPLOY_ENV_FILE" "$local_build_env"
     rm -f "$DEPLOY_ENV_FILE"
     trap 'rm -f "$DEPLOY_ENV_FILE" "$local_build_env"' RETURN
@@ -1000,6 +1074,30 @@ wait_for_http() {
     return 1
 }
 
+wait_for_auth_redirect() {
+    local url="$1"
+    local label="$2"
+    local attempts="${3:-15}"
+    local delay="${4:-2}"
+    local response=""
+    local code="000"
+    local redirect_url=""
+    local expected_prefix="https://$DOMAIN/admin/login"
+
+    for ((i = 1; i <= attempts; i++)); do
+        response=$(remote_ssh "curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' '$url' --max-time 8 2>/dev/null || true")
+        read -r code redirect_url <<< "$response"
+        if [[ ("$code" == "307" || "$code" == "308") && "$redirect_url" == "$expected_prefix"* ]]; then
+            ok "$label is protected (HTTP $code -> /admin/login)"
+            return 0
+        fi
+        sleep "$delay"
+    done
+
+    err "$label authentication boundary is invalid (last HTTP $code, redirect ${redirect_url:-<none>})"
+    return 1
+}
+
 deploy_remote_release() {
     step "Step 5: unpack and activate on 129"
 
@@ -1011,7 +1109,12 @@ deploy_remote_release() {
     upload_file "$ARTIFACT" "$remote_artifact"
 
     log "Uploading production environment file"
-    build_remote_env_file
+    build_remote_env_file true true
+    if ! dotenv_value_is_nonempty "$DEPLOY_ENV_FILE" "BETTER_AUTH_SECRET"; then
+        rm -f "$DEPLOY_ENV_FILE"
+        err "Resolved deployment environment has an empty BETTER_AUTH_SECRET"
+        return 1
+    fi
     upload_file "$DEPLOY_ENV_FILE" "$remote_env"
     rm -f "$DEPLOY_ENV_FILE"
 
@@ -1047,6 +1150,34 @@ restore_legacy_pm2() {
     fi
 }
 
+dotenv_has_nonempty_value() {
+    local file="\$1"
+    local key="\$2"
+
+    awk -v expected_key="\$key" '
+        function trim(value) {
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            return value
+        }
+        {
+            line = trim(\$0)
+            if (line ~ /^#/ || index(line, "=") == 0) next
+            key = trim(substr(line, 1, index(line, "=") - 1))
+            if (key != expected_key) next
+            value = trim(substr(line, index(line, "=") + 1))
+            first = substr(value, 1, 1)
+            last = substr(value, length(value), 1)
+            if (length(value) >= 2 && ((first == "\"" && last == "\"") || (first == "\047" && last == "\047"))) {
+                value = trim(substr(value, 2, length(value) - 2))
+            }
+            if (value ~ /[^[:space:]]/) found = 1
+            exit
+        }
+        END { exit found ? 0 : 1 }
+    ' "\$file"
+}
+
 rollback() {
     local previous="\${1:-}"
     echo "Rolling back service activation" >&2
@@ -1071,6 +1202,11 @@ if [ -f "\$SHARED_DIR/.env" ]; then
     cp "\$SHARED_DIR/.env" "\$REMOTE_DIR/backup/env/.env.\$(date +%Y%m%d%H%M%S)"
 elif [ -f "\$REMOTE_DIR/.env" ]; then
     cp "\$REMOTE_DIR/.env" "\$REMOTE_DIR/backup/env/.env.\$(date +%Y%m%d%H%M%S)"
+fi
+
+if ! dotenv_has_nonempty_value "\$REMOTE_ENV" "BETTER_AUTH_SECRET"; then
+    echo 'Missing or empty required production environment key: BETTER_AUTH_SECRET' >&2
+    exit 1
 fi
 
 install -m 600 "\$REMOTE_ENV" "\$SHARED_DIR/.env"
@@ -1229,6 +1365,37 @@ log "Bundled Linux Node.js: v$NODE_RUNTIME_VERSION"
 step "Step 1: prepare environment and build runtime bundle"
 
 prepare_env_file
+
+if $CHECK_ENV_ONLY; then
+    build_remote_env_file true true
+    if ! dotenv_value_is_nonempty "$DEPLOY_ENV_FILE" "BETTER_AUTH_SECRET"; then
+        rm -f "$DEPLOY_ENV_FILE"
+        err "Resolved deployment environment is missing a non-empty BETTER_AUTH_SECRET"
+        exit 1
+    fi
+    log "Resolved deployment environment keys (values hidden):"
+    redact_env_content < "$DEPLOY_ENV_FILE"
+    rm -f "$DEPLOY_ENV_FILE"
+    ok "Deployment environment is ready"
+    exit 0
+fi
+
+if $CHECK_BUILD_ENV_ONLY; then
+    build_remote_env_file false false
+    for forbidden_key in BETTER_AUTH_SECRET ADMIN_BOOTSTRAP_SECRET; do
+        if grep -q -E "^${forbidden_key}[[:space:]]*=" "$DEPLOY_ENV_FILE"; then
+            rm -f "$DEPLOY_ENV_FILE"
+            err "Resolved build environment contains forbidden production key: $forbidden_key"
+            exit 1
+        fi
+    done
+    log "Resolved build environment keys (values hidden):"
+    redact_env_content < "$DEPLOY_ENV_FILE"
+    rm -f "$DEPLOY_ENV_FILE"
+    ok "Build environment is free of production authentication secrets"
+    exit 0
+fi
+
 export_env_file_for_build
 export_secret_env_values
 detect_build_backend
@@ -1291,6 +1458,16 @@ fi
 
 if ! wait_for_http "https://$DOMAIN/" "HTTPS service" 30 2; then
     warn "HTTPS verification failed; inspect Caddy logs with journalctl -u caddy -n 80 --no-pager"
+    exit 1
+fi
+
+if ! wait_for_auth_redirect "https://$DOMAIN/admin" "Admin authentication boundary" 15 2; then
+    remote_ssh "journalctl -u '$SERVICE_NAME' -n 120 --no-pager || true"
+    exit 1
+fi
+
+if ! wait_for_auth_redirect "https://$DOMAIN/admin/showcases" "Showcase administration boundary" 15 2; then
+    remote_ssh "journalctl -u '$SERVICE_NAME' -n 120 --no-pager || true"
     exit 1
 fi
 

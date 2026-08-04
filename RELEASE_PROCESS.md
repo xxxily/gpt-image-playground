@@ -211,18 +211,19 @@ Android APK 产物规则：
 
 ```bash
 RELEASE_REF="$(git rev-parse HEAD)"
-BETTER_AUTH_SECRET="$(node -e "const fs=require('fs'); const p='.env.local'; const m=fs.existsSync(p)&&fs.readFileSync(p,'utf8').match(/^BETTER_AUTH_SECRET=(.+)$/m); if(!m) process.exit(1); process.stdout.write(m[1].trim().replace(/^['\\\"]|['\\\"]$/g,''));")"
 git worktree add --detach ../gpt-image-playground-deploy-129 "$RELEASE_REF"
 
 cd ../gpt-image-playground-deploy-129
 npm ci
-BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./scripts/deploy-129.sh
+./scripts/deploy-129.sh --check-build-env
+./scripts/deploy-129.sh --check-env
+./scripts/deploy-129.sh --backend 161
 
 cd -
 git worktree remove ../gpt-image-playground-deploy-129
 ```
 
-独立 worktree 不会自动带上未跟踪的 `.env.local`，所以不能依赖 `.env.local` 在部署脚本内部读取生产密钥。部署前必须显式把 `BETTER_AUTH_SECRET` 传入 `scripts/deploy-129.sh`；如本次发布涉及后台初始化，也要同样传入 `ADMIN_BOOTSTRAP_SECRET`。否则脚本只会按 `.env.production` 生成远端环境，可能覆盖远端持久化 `.env` 并导致后台路由因 Better Auth 默认 secret 返回 `500`。
+独立 worktree 不会自动带上未跟踪的 `.env.local`。部署脚本会优先使用 `.env.production`、显式进程环境或 `.env.local` 中的认证键；目标文件缺键时，会从 `129` 现有 `shared/.env` 继承 `BETTER_AUTH_SECRET` 和 `ADMIN_BOOTSTRAP_SECRET`，且不会把值打印到日志。正式构建前先运行 `--check-build-env`，确认发往 161/Mac Docker 的构建环境主动剔除了认证键；再运行 `--check-env`，确认最终 129 环境至少包含非空 `BETTER_AUTH_SECRET`。若仍缺失，脚本必须在构建和切换 `current` 前失败。显式传入环境变量仍可用于首次部署或主动轮换 secret，但不得在命令历史、报告或日志中记录值。
 
 如果临时只能在当前工作区部署，仍可运行 `scripts/deploy-129.sh`；发布前必须确认暂存和提交范围不包含无关文件。`scripts/deploy-129.sh` 默认会优先使用 `161` 或 Mac Docker 构建运行包，但其回退路径仍可能在当前工作区执行 `npm run build`，所以发布规范以独立 worktree 为准。
 
@@ -242,7 +243,7 @@ curl -sI https://img-playground.anzz.site/admin
 curl -sI https://img-playground.anzz.site/admin/promo
 ```
 
-期望返回 `200`、`301` 或 `302`。管理后台和展示管理页也要至少返回 `200` 或 `302`，确认后台链路没有被部署改动卡住。如脚本输出包含容器状态或 systemd 状态，也要确认：
+期望根页面返回 `200`，未登录访问管理后台和展示管理页必须返回 `307/308` 到 `/admin/login`。部署脚本会自动严格检查 `/admin` 和 `/admin/showcases` 的认证边界，不把意外公开的 `200` 当作成功，并防止主站正常但 Better Auth 因 secret 丢失而返回 `500`。如脚本输出包含容器状态或 systemd 状态，也要确认：
 
 - `129`：`systemctl status gpt-image-playground --no-pager` 为 `active (running)`，并确认 `readlink -f /root/work/gpt-image-playground/current` 指向本次 `releases/` 目录。
 
