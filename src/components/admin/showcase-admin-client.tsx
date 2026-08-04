@@ -26,14 +26,21 @@ import type { ShowcaseAdminTopic, ShowcasePublicationSummary, ShowcaseTopicDraft
 import type { ShowcaseCatalog, ShowcaseCase } from '@/lib/showcase';
 import {
     formatShowcaseRecipeOutputCustomSize,
+    setShowcaseInputSlotCounts,
+    setShowcaseInputSlotRequired,
     setShowcaseRecipeOutputCustomSize,
     setShowcaseRecipeOutputEnum,
     setShowcaseRecipeOutputInteger,
     setShowcaseRecipeOutputQuality,
     setShowcaseRecipeOutputScenario,
-    setShowcaseRecipeOutputSize
+    setShowcaseRecipeOutputSize,
+    setShowcaseRecipeUserInstruction,
+    setShowcaseRecipeUserInstructionPlaceholder,
+    setShowcaseTopicFaq,
+    setShowcaseTopicRelatedIds,
+    toggleShowcaseInputSlotMimeType
 } from '@/lib/showcase-admin-draft';
-import type { ShowcaseInputRole, ShowcaseTaskMode } from '@/lib/showcase-recipe';
+import type { ShowcaseAcceptedMimeType, ShowcaseInputRole, ShowcaseTaskMode } from '@/lib/showcase-recipe';
 import { cn } from '@/lib/utils';
 import {
     Archive,
@@ -221,6 +228,8 @@ function parseTagLines(value: string): ShowcaseTopicDraft['topic']['tags'] {
 function stringifyTagLines(tags: ShowcaseTopicDraft['topic']['tags']): string {
     return tags.map((tag) => `${tag['zh-CN']} | ${tag['en-US']}`).join('\n');
 }
+
+const SHOWCASE_ACCEPTED_MIME_TYPES: ShowcaseAcceptedMimeType[] = ['image/*', 'image/jpeg', 'image/png', 'image/webp'];
 
 export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDraft }: ShowcaseAdminClientProps) {
     const { t, formatDateTime } = useAppLanguage();
@@ -969,6 +978,212 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                 </span>
                                             </label>
 
+                                            <div className='grid gap-4 lg:grid-cols-2'>
+                                                <div className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
+                                                    <div>
+                                                        <p className='text-sm font-semibold'>
+                                                            {t('admin.showcases.topicFaq.title')}
+                                                        </p>
+                                                        <p className='text-muted-foreground text-xs'>
+                                                            {t('admin.showcases.topicFaq.description')}
+                                                        </p>
+                                                    </div>
+                                                    {(parsedDraft.topic.faq ?? []).map((faq, faqIndex) => (
+                                                        <div
+                                                            key={faqIndex}
+                                                            className='border-border bg-panel-ghost space-y-2 rounded-lg border p-2'>
+                                                            {(['zh-CN', 'en-US'] as const).map((locale) => (
+                                                                <React.Fragment key={locale}>
+                                                                    <label className='block space-y-1 text-xs'>
+                                                                        <span>
+                                                                            {t('admin.showcases.topicFaq.question', {
+                                                                                language: t(
+                                                                                    `admin.showcases.language.${locale}`
+                                                                                )
+                                                                            })}
+                                                                        </span>
+                                                                        <Input
+                                                                            value={faq.question[locale]}
+                                                                            disabled={!canWrite}
+                                                                            onChange={(event) =>
+                                                                                updateStructuredDraft((draft) => ({
+                                                                                    ...draft,
+                                                                                    topic: setShowcaseTopicFaq(
+                                                                                        draft.topic,
+                                                                                        (draft.topic.faq ?? []).map(
+                                                                                            (candidate, index) =>
+                                                                                                index === faqIndex
+                                                                                                    ? {
+                                                                                                          ...candidate,
+                                                                                                          question: {
+                                                                                                              ...candidate.question,
+                                                                                                              [locale]:
+                                                                                                                  event
+                                                                                                                      .target
+                                                                                                                      .value
+                                                                                                          }
+                                                                                                      }
+                                                                                                    : candidate
+                                                                                        )
+                                                                                    )
+                                                                                }))
+                                                                            }
+                                                                        />
+                                                                    </label>
+                                                                    <label className='block space-y-1 text-xs'>
+                                                                        <span>
+                                                                            {t('admin.showcases.topicFaq.answer', {
+                                                                                language: t(
+                                                                                    `admin.showcases.language.${locale}`
+                                                                                )
+                                                                            })}
+                                                                        </span>
+                                                                        <Textarea
+                                                                            value={faq.answer[locale]}
+                                                                            disabled={!canWrite}
+                                                                            className='min-h-16'
+                                                                            onChange={(event) =>
+                                                                                updateStructuredDraft((draft) => ({
+                                                                                    ...draft,
+                                                                                    topic: setShowcaseTopicFaq(
+                                                                                        draft.topic,
+                                                                                        (draft.topic.faq ?? []).map(
+                                                                                            (candidate, index) =>
+                                                                                                index === faqIndex
+                                                                                                    ? {
+                                                                                                          ...candidate,
+                                                                                                          answer: {
+                                                                                                              ...candidate.answer,
+                                                                                                              [locale]:
+                                                                                                                  event
+                                                                                                                      .target
+                                                                                                                      .value
+                                                                                                          }
+                                                                                                      }
+                                                                                                    : candidate
+                                                                                        )
+                                                                                    )
+                                                                                }))
+                                                                            }
+                                                                        />
+                                                                    </label>
+                                                                </React.Fragment>
+                                                            ))}
+                                                            <Button
+                                                                type='button'
+                                                                variant='ghost'
+                                                                size='sm'
+                                                                disabled={!canWrite}
+                                                                onClick={() =>
+                                                                    updateStructuredDraft((draft) => ({
+                                                                        ...draft,
+                                                                        topic: setShowcaseTopicFaq(
+                                                                            draft.topic,
+                                                                            (draft.topic.faq ?? []).filter(
+                                                                                (_, index) => index !== faqIndex
+                                                                            )
+                                                                        )
+                                                                    }))
+                                                                }>
+                                                                <Trash2 />
+                                                                {t('admin.showcases.topicFaq.remove')}
+                                                            </Button>
+                                                        </div>
+                                                    ))}
+                                                    <Button
+                                                        type='button'
+                                                        variant='outline'
+                                                        size='sm'
+                                                        disabled={
+                                                            !canWrite || (parsedDraft.topic.faq?.length ?? 0) >= 20
+                                                        }
+                                                        onClick={() =>
+                                                            updateStructuredDraft((draft) => ({
+                                                                ...draft,
+                                                                topic: setShowcaseTopicFaq(draft.topic, [
+                                                                    ...(draft.topic.faq ?? []),
+                                                                    {
+                                                                        question: { 'zh-CN': '', 'en-US': '' },
+                                                                        answer: { 'zh-CN': '', 'en-US': '' }
+                                                                    }
+                                                                ])
+                                                            }))
+                                                        }>
+                                                        <Plus />
+                                                        {t('admin.showcases.topicFaq.add')}
+                                                    </Button>
+                                                </div>
+                                                <div className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
+                                                    <div>
+                                                        <p className='text-sm font-semibold'>
+                                                            {t('admin.showcases.relatedTopics.title')}
+                                                        </p>
+                                                        <p className='text-muted-foreground text-xs'>
+                                                            {t('admin.showcases.relatedTopics.description')}
+                                                        </p>
+                                                    </div>
+                                                    <div className='grid gap-2 sm:grid-cols-2'>
+                                                        {topics
+                                                            .filter((topic) => topic.id !== parsedDraft.topic.id)
+                                                            .map((topic) => {
+                                                                const checked =
+                                                                    parsedDraft.topic.relatedTopicIds?.includes(
+                                                                        topic.id
+                                                                    );
+                                                                return (
+                                                                    <label
+                                                                        key={topic.id}
+                                                                        className='border-border bg-panel-ghost flex min-h-12 items-start gap-2 rounded-lg border p-2 text-sm'>
+                                                                        <Checkbox
+                                                                            checked={checked === true}
+                                                                            disabled={!canWrite}
+                                                                            onCheckedChange={(nextChecked) =>
+                                                                                updateStructuredDraft((draft) => ({
+                                                                                    ...draft,
+                                                                                    topic: setShowcaseTopicRelatedIds(
+                                                                                        draft.topic,
+                                                                                        nextChecked === true
+                                                                                            ? [
+                                                                                                  ...(draft.topic
+                                                                                                      .relatedTopicIds ??
+                                                                                                      []),
+                                                                                                  topic.id
+                                                                                              ]
+                                                                                            : (
+                                                                                                  draft.topic
+                                                                                                      .relatedTopicIds ??
+                                                                                                  []
+                                                                                              ).filter(
+                                                                                                  (id) =>
+                                                                                                      id !== topic.id
+                                                                                              )
+                                                                                    )
+                                                                                }))
+                                                                            }
+                                                                        />
+                                                                        <span className='min-w-0'>
+                                                                            <span className='block truncate font-medium'>
+                                                                                {topic.draft.topic.title['zh-CN']}
+                                                                            </span>
+                                                                            <span
+                                                                                className='text-muted-foreground block truncate text-xs'
+                                                                                data-i18n-skip='true'>
+                                                                                {topic.id}
+                                                                            </span>
+                                                                        </span>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                    </div>
+                                                    {topics.filter((topic) => topic.id !== parsedDraft.topic.id)
+                                                        .length === 0 ? (
+                                                        <p className='text-muted-foreground text-sm'>
+                                                            {t('admin.showcases.relatedTopics.empty')}
+                                                        </p>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+
                                             <div className='space-y-2'>
                                                 <div>
                                                     <p className='text-sm font-medium'>
@@ -1232,6 +1447,105 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                     }
                                                                 />
                                                             </label>
+                                                            <div className='app-panel-subtle border-border grid gap-3 rounded-lg border p-3 sm:col-span-2 sm:grid-cols-3'>
+                                                                <label className='flex min-h-10 items-center gap-2 text-sm'>
+                                                                    <Checkbox
+                                                                        checked={
+                                                                            item.recipe.userInstruction?.enabled ===
+                                                                            true
+                                                                        }
+                                                                        disabled={!canWrite}
+                                                                        onCheckedChange={(checked) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: setShowcaseRecipeUserInstruction(
+                                                                                            candidate.recipe,
+                                                                                            checked === true
+                                                                                        )
+                                                                                    })
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                    <span>
+                                                                        {t('admin.showcases.field.userInstruction')}
+                                                                    </span>
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t(
+                                                                            'admin.showcases.field.userInstructionMaxLength'
+                                                                        )}
+                                                                    </span>
+                                                                    <Input
+                                                                        type='number'
+                                                                        min={1}
+                                                                        max={2000}
+                                                                        value={
+                                                                            item.recipe.userInstruction?.maxLength ??
+                                                                            500
+                                                                        }
+                                                                        disabled={
+                                                                            !canWrite ||
+                                                                            item.recipe.userInstruction?.enabled !==
+                                                                                true
+                                                                        }
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: setShowcaseRecipeUserInstruction(
+                                                                                            candidate.recipe,
+                                                                                            true,
+                                                                                            Number(event.target.value)
+                                                                                        )
+                                                                                    })
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                </label>
+                                                                <label className='flex min-h-10 items-center gap-2 text-sm sm:self-end'>
+                                                                    <Checkbox
+                                                                        checked={
+                                                                            item.recipe.userInstruction
+                                                                                ?.placeholderKey === 'user_instruction'
+                                                                        }
+                                                                        disabled={
+                                                                            !canWrite ||
+                                                                            item.recipe.userInstruction?.enabled !==
+                                                                                true
+                                                                        }
+                                                                        onCheckedChange={(checked) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: setShowcaseRecipeUserInstructionPlaceholder(
+                                                                                            candidate.recipe,
+                                                                                            checked === true
+                                                                                        )
+                                                                                    })
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                    <span>
+                                                                        {t(
+                                                                            'admin.showcases.field.userInstructionPlaceholder'
+                                                                        )}
+                                                                    </span>
+                                                                </label>
+                                                            </div>
                                                             <div className='text-muted-foreground text-xs sm:col-span-2'>
                                                                 {t('admin.showcases.cases.slotSummary', {
                                                                     count: item.recipe.inputSlots.length
@@ -1435,6 +1749,289 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                                 }
                                                                             />
                                                                         </label>
+                                                                        <label className='space-y-1 text-xs sm:col-span-2'>
+                                                                            <span>
+                                                                                {t(
+                                                                                    'admin.showcases.field.slotDescriptionZh'
+                                                                                )}
+                                                                            </span>
+                                                                            <Textarea
+                                                                                value={slot.description['zh-CN']}
+                                                                                disabled={!canWrite}
+                                                                                className='min-h-16'
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) =>
+                                                                                        updateCaseInDraft(
+                                                                                            draft,
+                                                                                            item.id,
+                                                                                            (candidate) => ({
+                                                                                                ...candidate,
+                                                                                                recipe: {
+                                                                                                    ...candidate.recipe,
+                                                                                                    inputSlots:
+                                                                                                        candidate.recipe.inputSlots.map(
+                                                                                                            (
+                                                                                                                candidateSlot
+                                                                                                            ) =>
+                                                                                                                candidateSlot.id ===
+                                                                                                                slot.id
+                                                                                                                    ? {
+                                                                                                                          ...candidateSlot,
+                                                                                                                          description:
+                                                                                                                              {
+                                                                                                                                  ...candidateSlot.description,
+                                                                                                                                  'zh-CN':
+                                                                                                                                      event
+                                                                                                                                          .target
+                                                                                                                                          .value
+                                                                                                                              }
+                                                                                                                      }
+                                                                                                                    : candidateSlot
+                                                                                                        )
+                                                                                                }
+                                                                                            })
+                                                                                        )
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </label>
+                                                                        <label className='space-y-1 text-xs sm:col-span-2'>
+                                                                            <span>
+                                                                                {t(
+                                                                                    'admin.showcases.field.slotDescriptionEn'
+                                                                                )}
+                                                                            </span>
+                                                                            <Textarea
+                                                                                value={slot.description['en-US']}
+                                                                                disabled={!canWrite}
+                                                                                className='min-h-16'
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) =>
+                                                                                        updateCaseInDraft(
+                                                                                            draft,
+                                                                                            item.id,
+                                                                                            (candidate) => ({
+                                                                                                ...candidate,
+                                                                                                recipe: {
+                                                                                                    ...candidate.recipe,
+                                                                                                    inputSlots:
+                                                                                                        candidate.recipe.inputSlots.map(
+                                                                                                            (
+                                                                                                                candidateSlot
+                                                                                                            ) =>
+                                                                                                                candidateSlot.id ===
+                                                                                                                slot.id
+                                                                                                                    ? {
+                                                                                                                          ...candidateSlot,
+                                                                                                                          description:
+                                                                                                                              {
+                                                                                                                                  ...candidateSlot.description,
+                                                                                                                                  'en-US':
+                                                                                                                                      event
+                                                                                                                                          .target
+                                                                                                                                          .value
+                                                                                                                              }
+                                                                                                                      }
+                                                                                                                    : candidateSlot
+                                                                                                        )
+                                                                                                }
+                                                                                            })
+                                                                                        )
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </label>
+                                                                        <label className='flex min-h-10 items-center gap-2 text-xs'>
+                                                                            <Checkbox
+                                                                                checked={slot.required}
+                                                                                disabled={!canWrite}
+                                                                                onCheckedChange={(checked) =>
+                                                                                    updateStructuredDraft((draft) =>
+                                                                                        updateCaseInDraft(
+                                                                                            draft,
+                                                                                            item.id,
+                                                                                            (candidate) => ({
+                                                                                                ...candidate,
+                                                                                                recipe: {
+                                                                                                    ...candidate.recipe,
+                                                                                                    inputSlots:
+                                                                                                        candidate.recipe.inputSlots.map(
+                                                                                                            (
+                                                                                                                candidateSlot
+                                                                                                            ) =>
+                                                                                                                candidateSlot.id ===
+                                                                                                                slot.id
+                                                                                                                    ? setShowcaseInputSlotRequired(
+                                                                                                                          candidateSlot,
+                                                                                                                          checked ===
+                                                                                                                              true
+                                                                                                                      )
+                                                                                                                    : candidateSlot
+                                                                                                        )
+                                                                                                }
+                                                                                            })
+                                                                                        )
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                            <span>
+                                                                                {t(
+                                                                                    'admin.showcases.field.slotRequired'
+                                                                                )}
+                                                                            </span>
+                                                                        </label>
+                                                                        <label className='space-y-1 text-xs'>
+                                                                            <span>
+                                                                                {t(
+                                                                                    'admin.showcases.field.slotMinCount'
+                                                                                )}
+                                                                            </span>
+                                                                            <Input
+                                                                                type='number'
+                                                                                min={slot.required ? 1 : 0}
+                                                                                max={slot.maxCount}
+                                                                                value={slot.minCount}
+                                                                                disabled={!canWrite || !slot.required}
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) =>
+                                                                                        updateCaseInDraft(
+                                                                                            draft,
+                                                                                            item.id,
+                                                                                            (candidate) => ({
+                                                                                                ...candidate,
+                                                                                                recipe: {
+                                                                                                    ...candidate.recipe,
+                                                                                                    inputSlots:
+                                                                                                        candidate.recipe.inputSlots.map(
+                                                                                                            (
+                                                                                                                candidateSlot
+                                                                                                            ) =>
+                                                                                                                candidateSlot.id ===
+                                                                                                                slot.id
+                                                                                                                    ? setShowcaseInputSlotCounts(
+                                                                                                                          candidateSlot,
+                                                                                                                          Number(
+                                                                                                                              event
+                                                                                                                                  .target
+                                                                                                                                  .value
+                                                                                                                          ),
+                                                                                                                          candidateSlot.maxCount
+                                                                                                                      )
+                                                                                                                    : candidateSlot
+                                                                                                        )
+                                                                                                }
+                                                                                            })
+                                                                                        )
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </label>
+                                                                        <label className='space-y-1 text-xs'>
+                                                                            <span>
+                                                                                {t(
+                                                                                    'admin.showcases.field.slotMaxCount'
+                                                                                )}
+                                                                            </span>
+                                                                            <Input
+                                                                                type='number'
+                                                                                min={1}
+                                                                                max={16}
+                                                                                value={slot.maxCount}
+                                                                                disabled={!canWrite}
+                                                                                onChange={(event) =>
+                                                                                    updateStructuredDraft((draft) =>
+                                                                                        updateCaseInDraft(
+                                                                                            draft,
+                                                                                            item.id,
+                                                                                            (candidate) => ({
+                                                                                                ...candidate,
+                                                                                                recipe: {
+                                                                                                    ...candidate.recipe,
+                                                                                                    inputSlots:
+                                                                                                        candidate.recipe.inputSlots.map(
+                                                                                                            (
+                                                                                                                candidateSlot
+                                                                                                            ) =>
+                                                                                                                candidateSlot.id ===
+                                                                                                                slot.id
+                                                                                                                    ? setShowcaseInputSlotCounts(
+                                                                                                                          candidateSlot,
+                                                                                                                          candidateSlot.minCount,
+                                                                                                                          Number(
+                                                                                                                              event
+                                                                                                                                  .target
+                                                                                                                                  .value
+                                                                                                                          )
+                                                                                                                      )
+                                                                                                                    : candidateSlot
+                                                                                                        )
+                                                                                                }
+                                                                                            })
+                                                                                        )
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </label>
+                                                                        <fieldset className='space-y-1 text-xs sm:col-span-2 lg:col-span-4'>
+                                                                            <legend>
+                                                                                {t(
+                                                                                    'admin.showcases.field.slotMimeTypes'
+                                                                                )}
+                                                                            </legend>
+                                                                            <div className='flex flex-wrap gap-2'>
+                                                                                {SHOWCASE_ACCEPTED_MIME_TYPES.map(
+                                                                                    (mimeType) => (
+                                                                                        <label
+                                                                                            key={mimeType}
+                                                                                            className='border-border flex min-h-9 items-center gap-2 rounded-md border px-2'>
+                                                                                            <Checkbox
+                                                                                                checked={slot.acceptedMimeTypes.includes(
+                                                                                                    mimeType
+                                                                                                )}
+                                                                                                disabled={!canWrite}
+                                                                                                onCheckedChange={(
+                                                                                                    checked
+                                                                                                ) =>
+                                                                                                    updateStructuredDraft(
+                                                                                                        (draft) =>
+                                                                                                            updateCaseInDraft(
+                                                                                                                draft,
+                                                                                                                item.id,
+                                                                                                                (
+                                                                                                                    candidate
+                                                                                                                ) => ({
+                                                                                                                    ...candidate,
+                                                                                                                    recipe: {
+                                                                                                                        ...candidate.recipe,
+                                                                                                                        inputSlots:
+                                                                                                                            candidate.recipe.inputSlots.map(
+                                                                                                                                (
+                                                                                                                                    candidateSlot
+                                                                                                                                ) =>
+                                                                                                                                    candidateSlot.id ===
+                                                                                                                                    slot.id
+                                                                                                                                        ? toggleShowcaseInputSlotMimeType(
+                                                                                                                                              candidateSlot,
+                                                                                                                                              mimeType,
+                                                                                                                                              checked ===
+                                                                                                                                                  true
+                                                                                                                                          )
+                                                                                                                                        : candidateSlot
+                                                                                                                            )
+                                                                                                                    }
+                                                                                                                })
+                                                                                                            )
+                                                                                                    )
+                                                                                                }
+                                                                                            />
+                                                                                            <span data-i18n-skip='true'>
+                                                                                                {mimeType}
+                                                                                            </span>
+                                                                                        </label>
+                                                                                    )
+                                                                                )}
+                                                                            </div>
+                                                                        </fieldset>
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -1794,6 +2391,82 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                                             )
                                                                         }
                                                                     />
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputBackground')}
+                                                                    </span>
+                                                                    <select
+                                                                        value={item.recipe.output?.background ?? ''}
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: {
+                                                                                            ...candidate.recipe,
+                                                                                            output: setShowcaseRecipeOutputEnum(
+                                                                                                candidate.recipe.output,
+                                                                                                'background',
+                                                                                                event.target.value as
+                                                                                                    | ''
+                                                                                                    | 'transparent'
+                                                                                                    | 'opaque'
+                                                                                                    | 'auto'
+                                                                                            )
+                                                                                        }
+                                                                                    })
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                        className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'>
+                                                                        <option value=''>
+                                                                            {t('showcase.recipe.auto')}
+                                                                        </option>
+                                                                        <option value='auto'>auto</option>
+                                                                        <option value='opaque'>opaque</option>
+                                                                        <option value='transparent'>transparent</option>
+                                                                    </select>
+                                                                </label>
+                                                                <label className='space-y-1.5 text-sm'>
+                                                                    <span className='font-medium'>
+                                                                        {t('admin.showcases.field.outputModeration')}
+                                                                    </span>
+                                                                    <select
+                                                                        value={item.recipe.output?.moderation ?? ''}
+                                                                        disabled={!canWrite}
+                                                                        onChange={(event) =>
+                                                                            updateStructuredDraft((draft) =>
+                                                                                updateCaseInDraft(
+                                                                                    draft,
+                                                                                    item.id,
+                                                                                    (candidate) => ({
+                                                                                        ...candidate,
+                                                                                        recipe: {
+                                                                                            ...candidate.recipe,
+                                                                                            output: setShowcaseRecipeOutputEnum(
+                                                                                                candidate.recipe.output,
+                                                                                                'moderation',
+                                                                                                event.target.value as
+                                                                                                    | ''
+                                                                                                    | 'low'
+                                                                                                    | 'auto'
+                                                                                            )
+                                                                                        }
+                                                                                    })
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                        className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'>
+                                                                        <option value=''>
+                                                                            {t('showcase.recipe.auto')}
+                                                                        </option>
+                                                                        <option value='auto'>auto</option>
+                                                                        <option value='low'>low</option>
+                                                                    </select>
                                                                 </label>
                                                             </div>
                                                         </div>

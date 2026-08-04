@@ -1,12 +1,21 @@
+import { DEFAULT_SHOWCASE_CATALOG } from './default-showcases';
 import {
     formatShowcaseRecipeOutputCustomSize,
     parseShowcaseRecipeOutputCustomSize,
+    setShowcaseInputSlotCounts,
+    setShowcaseInputSlotMimeTypes,
+    setShowcaseInputSlotRequired,
     setShowcaseRecipeOutputCustomSize,
     setShowcaseRecipeOutputEnum,
     setShowcaseRecipeOutputInteger,
     setShowcaseRecipeOutputQuality,
     setShowcaseRecipeOutputScenario,
-    setShowcaseRecipeOutputSize
+    setShowcaseRecipeOutputSize,
+    setShowcaseRecipeUserInstruction,
+    setShowcaseRecipeUserInstructionPlaceholder,
+    setShowcaseTopicFaq,
+    setShowcaseTopicRelatedIds,
+    toggleShowcaseInputSlotMimeType
 } from './showcase-admin-draft';
 import { describe, expect, it } from 'vitest';
 
@@ -54,5 +63,107 @@ describe('showcase admin draft output helpers', () => {
         expect(parseShowcaseRecipeOutputCustomSize('32×1024')).toBeUndefined();
         expect(setShowcaseRecipeOutputCustomSize(current, '1024')).toEqual({ quality: 'high' });
         expect(formatShowcaseRecipeOutputCustomSize(current)).toBe('1200×1600');
+    });
+});
+
+describe('showcase admin structured field helpers', () => {
+    const topic = DEFAULT_SHOWCASE_CATALOG.topics[0]!;
+    const inputSlot = DEFAULT_SHOWCASE_CATALOG.cases[0]!.recipe.inputSlots[0]!;
+
+    it('creates and clears FAQ and related-topic fields without leaving empty arrays', () => {
+        const faq = [
+            {
+                question: { 'zh-CN': '需要几张图？', 'en-US': 'How many images are needed?' },
+                answer: { 'zh-CN': '一张清晰原图。', 'en-US': 'One clear source image.' }
+            }
+        ];
+        expect(setShowcaseTopicFaq(topic, faq).faq).toEqual(faq);
+        expect(setShowcaseTopicFaq({ ...topic, faq }, [])).not.toHaveProperty('faq');
+        expect(setShowcaseTopicRelatedIds(topic, [' creative-style ', topic.id, 'creative-style'])).toEqual({
+            ...topic,
+            relatedTopicIds: ['creative-style']
+        });
+        expect(setShowcaseTopicRelatedIds({ ...topic, relatedTopicIds: ['creative-style'] }, [])).not.toHaveProperty(
+            'relatedTopicIds'
+        );
+    });
+
+    it('enables, bounds, updates, and clears user instructions', () => {
+        const recipe = DEFAULT_SHOWCASE_CATALOG.cases[0]!.recipe;
+        expect(setShowcaseRecipeUserInstruction({ ...recipe, userInstruction: undefined }, true, 4_000)).toMatchObject({
+            userInstruction: { enabled: true, maxLength: 2_000 }
+        });
+        expect(
+            setShowcaseRecipeUserInstruction(
+                {
+                    ...recipe,
+                    prompt: {
+                        'zh-CN': `${recipe.prompt['zh-CN']}\n\n{{user_instruction}}`,
+                        'en-US': `${recipe.prompt['en-US']}\n\n{{user_instruction}}`
+                    },
+                    userInstruction: { enabled: true, maxLength: 500, placeholderKey: 'user_instruction' }
+                },
+                true,
+                800
+            )
+        ).toMatchObject({ userInstruction: { enabled: true, maxLength: 800, placeholderKey: 'user_instruction' } });
+
+        const cleared = setShowcaseRecipeUserInstruction(
+            {
+                ...recipe,
+                prompt: {
+                    'zh-CN': `${recipe.prompt['zh-CN']}\n\n{{user_instruction}}`,
+                    'en-US': `${recipe.prompt['en-US']}\n\n{{user_instruction}}`
+                },
+                userInstruction: { enabled: true, maxLength: 500, placeholderKey: 'user_instruction' }
+            },
+            false
+        );
+        expect(cleared).not.toHaveProperty('userInstruction');
+        expect(cleared.prompt['zh-CN']).not.toContain('{{user_instruction}}');
+
+        const withPlaceholder = setShowcaseRecipeUserInstructionPlaceholder(
+            { ...recipe, userInstruction: { enabled: true, maxLength: 500 } },
+            true
+        );
+        expect(withPlaceholder.userInstruction).toEqual({
+            enabled: true,
+            maxLength: 500,
+            placeholderKey: 'user_instruction'
+        });
+        expect(withPlaceholder.prompt['zh-CN']).toContain('{{user_instruction}}');
+        const withoutPlaceholder = setShowcaseRecipeUserInstructionPlaceholder(withPlaceholder, false);
+        expect(withoutPlaceholder.userInstruction).toEqual({ enabled: true, maxLength: 500 });
+        expect(withoutPlaceholder.prompt['zh-CN']).not.toContain('{{user_instruction}}');
+    });
+
+    it('keeps input-slot required/count invariants and normalizes MIME selections', () => {
+        expect(setShowcaseInputSlotRequired({ ...inputSlot, minCount: 0 }, true)).toMatchObject({
+            required: true,
+            minCount: 1,
+            maxCount: 1
+        });
+        expect(setShowcaseInputSlotRequired(inputSlot, false)).toMatchObject({ required: false, minCount: 0 });
+        expect(setShowcaseInputSlotCounts({ ...inputSlot, maxCount: 4 }, 3, 2)).toMatchObject({
+            minCount: 2,
+            maxCount: 2
+        });
+        expect(setShowcaseInputSlotMimeTypes(inputSlot, ['image/png', 'image/png', 'text/plain'])).toMatchObject({
+            acceptedMimeTypes: ['image/png']
+        });
+        expect(setShowcaseInputSlotMimeTypes(inputSlot, [])).toMatchObject({ acceptedMimeTypes: ['image/*'] });
+        expect(toggleShowcaseInputSlotMimeType(inputSlot, 'image/png', true)).toMatchObject({
+            acceptedMimeTypes: ['image/png']
+        });
+        expect(
+            toggleShowcaseInputSlotMimeType(
+                { ...inputSlot, acceptedMimeTypes: ['image/png', 'image/webp'] },
+                'image/*',
+                true
+            )
+        ).toMatchObject({ acceptedMimeTypes: ['image/*'] });
+        expect(
+            toggleShowcaseInputSlotMimeType({ ...inputSlot, acceptedMimeTypes: ['image/png'] }, 'image/png', false)
+        ).toMatchObject({ acceptedMimeTypes: ['image/*'] });
     });
 });

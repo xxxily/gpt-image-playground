@@ -3,6 +3,7 @@ import {
     getManagedAssetIds,
     selectReferencedShowcaseTopicDraftAssets
 } from './media';
+import { assertRemoteShowcaseAssetsHealthy } from './remote-media';
 import type {
     ShowcaseAdminActor,
     ShowcaseAdminTopic,
@@ -156,7 +157,10 @@ async function createPublication(
 ): Promise<PublicationRow> {
     await getServerDatabaseReady();
     const publicationDraft = selectReferencedShowcaseTopicDraftAssets(draft);
-    const managedAssetIds = await assertManagedShowcaseAssetsHealthy(publicationDraft);
+    const [managedAssetIds] = await Promise.all([
+        assertManagedShowcaseAssetsHealthy(publicationDraft),
+        assertRemoteShowcaseAssetsHealthy(publicationDraft)
+    ]);
     const publicationId = randomToken(16);
     const now = new Date();
     const transactionResult = getSqliteClient().transaction(() => {

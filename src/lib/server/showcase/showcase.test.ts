@@ -9,6 +9,7 @@ import {
 } from './admin';
 import { getShowcaseCorsHeaders } from './cors';
 import { getPublicShowcaseCatalog, getPublicShowcaseTopic } from './public';
+import { assertRemoteShowcaseAssetsHealthy } from './remote-media';
 import type { ShowcaseAdminActor, ShowcaseTopicDraft } from './types';
 import { DEFAULT_SHOWCASE_CATALOG } from '@/lib/default-showcases';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
@@ -18,7 +19,11 @@ import { NextRequest } from 'next/server';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./remote-media', () => ({
+    assertRemoteShowcaseAssetsHealthy: vi.fn(async () => [])
+}));
 
 const databasePath = path.join(os.tmpdir(), 'gpt-image-playground-showcases.test.sqlite');
 
@@ -66,6 +71,7 @@ function actor(): ShowcaseAdminActor {
 }
 
 async function resetTables(): Promise<void> {
+    vi.mocked(assertRemoteShowcaseAssetsHealthy).mockReset().mockResolvedValue([]);
     await getServerDatabaseReady();
     getSqliteClient().exec(`
         DELETE FROM "showcase_publications";
@@ -127,6 +133,92 @@ describe('showcase publications', () => {
         expect((await getPublicShowcaseTopic(initialDraft.topic.slug))?.catalog.topics[0]?.relatedTopicIds).toEqual([]);
         expect(adminResult?.topic.draft.topic.title['zh-CN']).toBe('未发布的新标题');
         expect(adminResult?.publications).toHaveLength(1);
+    });
+
+    it('round-trips every structured operations field through create, update, clear, and reload', async () => {
+        const initialDraft = draftForTopic(0);
+        const relatedTopicId = DEFAULT_SHOWCASE_CATALOG.topics[1]!.id;
+        const firstCase = initialDraft.cases[0]!;
+        const enrichedDraft: ShowcaseTopicDraft = {
+            ...initialDraft,
+            topic: {
+                ...initialDraft.topic,
+                faq: [
+                    {
+                        question: { 'zh-CN': '需要准备什么？', 'en-US': 'What should I prepare?' },
+                        answer: { 'zh-CN': '准备一张清晰原图。', 'en-US': 'Prepare one clear source image.' }
+                    }
+                ],
+                relatedTopicIds: [relatedTopicId]
+            },
+            cases: initialDraft.cases.map((showcaseCase) =>
+                showcaseCase.id === firstCase.id
+                    ? {
+                          ...showcaseCase,
+                          recipe: {
+                              ...showcaseCase.recipe,
+                              inputSlots: showcaseCase.recipe.inputSlots.map((slot, index) =>
+                                  index === 0
+                                      ? {
+                                            ...slot,
+                                            minCount: 1,
+                                            maxCount: 3,
+                                            acceptedMimeTypes: ['image/png', 'image/webp']
+                                        }
+                                      : slot
+                              ),
+                              userInstruction: { enabled: true, maxLength: 800 },
+                              output: {
+                                  ...showcaseCase.recipe.output,
+                                  background: 'transparent',
+                                  moderation: 'low'
+                              }
+                          }
+                      }
+                    : showcaseCase
+            )
+        };
+
+        await createShowcaseTopicAdmin({ draft: enrichedDraft }, actor());
+        const created = await getShowcaseTopicAdmin(enrichedDraft.topic.id);
+        expect(created?.topic.draft.topic.faq).toEqual(enrichedDraft.topic.faq);
+        expect(created?.topic.draft.topic.relatedTopicIds).toEqual([relatedTopicId]);
+        expect(created?.topic.draft.cases[0]?.recipe).toMatchObject({
+            inputSlots: [
+                expect.objectContaining({
+                    minCount: 1,
+                    maxCount: 3,
+                    acceptedMimeTypes: ['image/png', 'image/webp']
+                })
+            ],
+            userInstruction: { enabled: true, maxLength: 800 },
+            output: expect.objectContaining({ background: 'transparent', moderation: 'low' })
+        });
+
+        const clearedDraft: ShowcaseTopicDraft = {
+            ...created!.topic.draft,
+            topic: {
+                ...created!.topic.draft.topic,
+                faq: undefined,
+                relatedTopicIds: undefined
+            },
+            cases: created!.topic.draft.cases.map((showcaseCase, index) => {
+                if (index !== 0) return showcaseCase;
+                const output = { ...showcaseCase.recipe.output };
+                delete output.background;
+                delete output.moderation;
+                const recipe = { ...showcaseCase.recipe, output };
+                delete recipe.userInstruction;
+                return { ...showcaseCase, recipe };
+            })
+        };
+        await updateShowcaseTopicAdmin(enrichedDraft.topic.id, { draft: clearedDraft }, actor());
+        const cleared = await getShowcaseTopicAdmin(enrichedDraft.topic.id);
+        expect(cleared?.topic.draft.topic).not.toHaveProperty('faq');
+        expect(cleared?.topic.draft.topic).not.toHaveProperty('relatedTopicIds');
+        expect(cleared?.topic.draft.cases[0]?.recipe).not.toHaveProperty('userInstruction');
+        expect(cleared?.topic.draft.cases[0]?.recipe.output).not.toHaveProperty('background');
+        expect(cleared?.topic.draft.cases[0]?.recipe.output).not.toHaveProperty('moderation');
     });
 
     it('publishes a new revision, unpublishes, and rolls back as a new immutable revision', async () => {
@@ -193,6 +285,37 @@ describe('showcase publications', () => {
                 actor()
             )
         ).rejects.toThrow();
+    });
+
+    it('does not create a publication when remote media probing fails', async () => {
+        const initialDraft = draftForTopic(3);
+        const remoteAsset = {
+            id: 'external-publication-cover',
+            kind: 'remote-image' as const,
+            alt: { 'zh-CN': '远程封面', 'en-US': 'Remote cover' },
+            url: 'https://images.example.test/cover.webp',
+            mimeType: 'image/webp' as const,
+            width: 1200,
+            height: 800
+        };
+        const remoteDraft: ShowcaseTopicDraft = {
+            ...initialDraft,
+            topic: { ...initialDraft.topic, coverAssetId: remoteAsset.id },
+            assets: [...initialDraft.assets, remoteAsset]
+        };
+        await createShowcaseTopicAdmin({ draft: remoteDraft }, actor());
+        vi.mocked(assertRemoteShowcaseAssetsHealthy).mockRejectedValueOnce(new Error('远程媒体发布校验失败'));
+
+        await expect(publishShowcaseTopicAdmin(remoteDraft.topic.id, actor())).rejects.toThrow('远程媒体发布校验失败');
+        expect(
+            getSqliteClient()
+                .prepare('SELECT COUNT(*) AS "count" FROM "showcase_publications" WHERE "topicId" = ?;')
+                .get(remoteDraft.topic.id)
+        ).toMatchObject({ count: 0 });
+        expect(await getShowcaseTopicAdmin(remoteDraft.topic.id)).toMatchObject({
+            topic: { status: 'draft', publishedPublicationId: null },
+            publications: []
+        });
     });
 
     it('excludes future and expired publications and archives by soft deletion', async () => {
