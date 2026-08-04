@@ -80,6 +80,10 @@ export type ShowcaseTopic = {
     faq?: ShowcaseFaqItem[];
     relatedTopicIds?: string[];
     tags: ShowcaseLocalizedText[];
+    /** Optional operational taxonomy used by the directory filters. */
+    categories?: ShowcaseLocalizedText[];
+    /** Server-authored publish time for directory ordering; drafts may omit it. */
+    publishedAt?: number;
     featured: boolean;
     sortOrder: number;
     coverAssetId: string;
@@ -105,6 +109,8 @@ export type NormalizeShowcaseCatalogOptions = {
     allowDanglingRelatedTopicIds?: boolean;
     /** Client-only recovery for a single case using a newer integer recipe version. */
     allowUnsupportedRecipeVersions?: boolean;
+    /** Public wire extensions that old strict schema-v1 clients do not understand. */
+    allowExtendedTopicMetadata?: boolean;
 };
 
 /** Non-sensitive provenance attached to a workbench task or history entry. */
@@ -186,6 +192,8 @@ const TOPIC_KEYS = new Set([
     'faq',
     'relatedTopicIds',
     'tags',
+    'categories',
+    'publishedAt',
     'featured',
     'sortOrder',
     'coverAssetId',
@@ -502,14 +510,20 @@ function normalizeShowcaseCaseForDisplay(value: unknown): ShowcaseCase | null {
         const existing = value as UnknownRecord;
         const markedVersion = normalizeInteger(existing.unsupportedRecipeVersion, 2, Number.MAX_SAFE_INTEGER);
         if (markedVersion) {
+            const inputAssetIds = normalizeIdArray(existing.inputAssetIds, 0, 32);
+            if (!inputAssetIds) return null;
             const candidateRecord = { ...existing };
             delete candidateRecord.unsupportedRecipeVersion;
             delete candidateRecord.readOnlyPrompt;
-            const normalized = normalizeShowcaseCase(candidateRecord);
+            const normalized = normalizeShowcaseCase({
+                ...candidateRecord,
+                inputAssetIds: inputAssetIds.slice(0, 16)
+            });
             const readOnlyPrompt = normalizeShowcaseReadOnlyPrompt(existing.readOnlyPrompt);
             return normalized
                 ? {
                       ...normalized,
+                      inputAssetIds,
                       unsupportedRecipeVersion: markedVersion,
                       ...(readOnlyPrompt ? { readOnlyPrompt } : {})
                   }
@@ -553,10 +567,15 @@ function normalizeShowcaseCaseForDisplay(value: unknown): ShowcaseCase | null {
     const candidateRecord = { ...record };
     delete candidateRecord.unsupportedRecipeVersion;
     delete candidateRecord.readOnlyPrompt;
-    const normalized = normalizeShowcaseCase({ ...candidateRecord, recipe: fallbackRecipe });
+    const normalized = normalizeShowcaseCase({
+        ...candidateRecord,
+        inputAssetIds: inputAssetIds.slice(0, 16),
+        recipe: fallbackRecipe
+    });
     return normalized
         ? {
               ...normalized,
+              inputAssetIds,
               unsupportedRecipeVersion: unsupportedVersion,
               ...(readOnlyPrompt ? { readOnlyPrompt } : {})
           }
@@ -567,7 +586,18 @@ export function isExecutableShowcaseCase(showcaseCase: ShowcaseCase): boolean {
     return showcaseCase.unsupportedRecipeVersion === undefined;
 }
 
-export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
+export function normalizeShowcaseTopic(
+    value: unknown,
+    options: { allowExtendedTopicMetadata?: boolean } = {}
+): ShowcaseTopic | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    const raw = value as UnknownRecord;
+    if (
+        !options.allowExtendedTopicMetadata &&
+        (Object.hasOwn(raw, 'categories') || Object.hasOwn(raw, 'publishedAt'))
+    ) {
+        return null;
+    }
     const record = asStrictRecord(value, TOPIC_KEYS);
     if (!record || typeof record.featured !== 'boolean') return null;
 
@@ -591,6 +621,9 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
     const coverAssetId = normalizeIdentifier(record.coverAssetId);
     const caseIds = normalizeIdArray(record.caseIds, 1, 128);
     const rawTags = asStrictArray(record.tags);
+    const rawCategories = record.categories === undefined ? undefined : asStrictArray(record.categories);
+    const publishedAt =
+        record.publishedAt === undefined ? undefined : normalizeInteger(record.publishedAt, 1, Number.MAX_SAFE_INTEGER);
     if (
         !id ||
         !slug ||
@@ -607,7 +640,9 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
         !caseIds ||
         !rawTags ||
         rawTags.length === 0 ||
-        rawTags.length > 16
+        rawTags.length > 16 ||
+        (record.categories !== undefined && (!rawCategories || rawCategories.length === 0 || rawCategories.length > 12)) ||
+        (record.publishedAt !== undefined && publishedAt === null)
     ) {
         return null;
     }
@@ -621,6 +656,20 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
         if (tagKeys.has(tagKey)) return null;
         tagKeys.add(tagKey);
         tags.push(tag);
+    }
+
+    let categories: ShowcaseLocalizedText[] | undefined;
+    if (rawCategories) {
+        categories = [];
+        const categoryKeys = new Set<string>();
+        for (const rawCategory of rawCategories) {
+            const category = normalizeLocalizedText(rawCategory, 80);
+            if (!category) return null;
+            const categoryKey = `${category['zh-CN']}\0${category['en-US']}`.toLocaleLowerCase();
+            if (categoryKeys.has(categoryKey)) return null;
+            categoryKeys.add(categoryKey);
+            categories.push(category);
+        }
     }
 
     let faq: ShowcaseFaqItem[] | undefined;
@@ -656,6 +705,8 @@ export function normalizeShowcaseTopic(value: unknown): ShowcaseTopic | null {
         ...(faq ? { faq } : {}),
         ...(relatedTopicIds ? { relatedTopicIds } : {}),
         tags,
+        ...(categories ? { categories } : {}),
+        ...(publishedAt !== undefined && publishedAt !== null ? { publishedAt } : {}),
         featured: record.featured,
         sortOrder,
         coverAssetId,
@@ -744,7 +795,12 @@ export function normalizeShowcaseCatalog(
     const catalogRevision = normalizeDisplayText(record.catalogRevision, 128);
     const generatedAt = normalizeInteger(record.generatedAt, 1, Number.MAX_SAFE_INTEGER);
     const contentNotice = normalizeLocalizedText(record.contentNotice, 1_000);
-    const rawTopics = normalizeCollection(record.topics, normalizeShowcaseTopic, 256);
+    const rawTopics = normalizeCollection(
+        record.topics,
+        (topic) =>
+            normalizeShowcaseTopic(topic, { allowExtendedTopicMetadata: options.allowExtendedTopicMetadata }),
+        256
+    );
     const displayCases = options.allowUnsupportedRecipeVersions ? normalizeShowcaseCasesForDisplay(record.cases) : null;
     const cases = options.allowUnsupportedRecipeVersions
         ? (displayCases?.cases ?? null)

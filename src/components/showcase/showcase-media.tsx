@@ -159,6 +159,9 @@ export function ShowcaseComparison({
     );
 
     const canSlide = inputs.length === 1 && output !== null;
+    React.useEffect(() => {
+        if (!canSlide && mode === 'slider') setMode('side-by-side');
+    }, [canSlide, mode]);
     const slider = (
         <div className={cn('relative isolate overflow-hidden', mediaHeight)}>
             <ShowcaseMedia asset={output} eager={eager} className='absolute inset-0 h-full w-full' />
@@ -230,6 +233,18 @@ export function ShowcaseComparison({
                         )}>
                         <ArrowLeftRight className='size-3.5' aria-hidden='true' />
                         {t('showcase.comparison.slider')}
+                    </button>
+                </div>
+            ) : null}
+            {compact && canSlide ? (
+                <div className='border-panel-divider bg-panel-subtle flex items-center justify-end border-b p-1'>
+                    <button
+                        type='button'
+                        aria-pressed={mode === 'slider'}
+                        onClick={() => setMode((current) => (current === 'slider' ? 'side-by-side' : 'slider'))}
+                        className='focus-visible:ring-ring/50 text-on-panel-muted flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs outline-none focus-visible:ring-[3px]'>
+                        <ArrowLeftRight className='size-3.5' aria-hidden='true' />
+                        {mode === 'slider' ? t('showcase.comparison.sideBySide') : t('showcase.comparison.slider')}
                     </button>
                 </div>
             ) : null}

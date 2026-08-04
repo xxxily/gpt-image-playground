@@ -1,5 +1,6 @@
 import {
     getShowcaseAnalyticsSummary,
+    exportShowcaseAnalyticsRows,
     parseShowcaseAnalyticsBatch,
     recordShowcaseAnalyticsBatch,
     SHOWCASE_ANALYTICS_MAX_BATCH
@@ -77,5 +78,15 @@ describe('showcase analytics persistence', () => {
         expect(summary.cases).toEqual([
             { topicId: 'topic-one', caseId: 'case-one', event: 'showcase_case_open', count: 1 }
         ]);
+        const exported = await exportShowcaseAnalyticsRows(Date.now() - 60_000, Date.now() + 60_000);
+        expect(exported).toHaveLength(2);
+        expect(exported[0]).toMatchObject({
+            event: 'showcase_open',
+            topicId: 'topic-one',
+            runtime: 'web'
+        });
+        expect(Object.keys(exported[0] ?? {})).not.toEqual(
+            expect.arrayContaining(['prompt', 'imageHash', 'visitorId', 'userAgent', 'ip'])
+        );
     });
 });

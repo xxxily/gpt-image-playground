@@ -115,7 +115,10 @@ export function readShowcaseCatalogCache(
             return null;
         }
 
-        const normalizedCatalog = normalizeShowcaseCatalog(parsed.catalog, { allowUnsupportedRecipeVersions: true });
+        const normalizedCatalog = normalizeShowcaseCatalog(parsed.catalog, {
+            allowUnsupportedRecipeVersions: true,
+            allowExtendedTopicMetadata: true
+        });
         const catalog = normalizedCatalog ? resolveShowcaseCatalogMediaUrls(normalizedCatalog, parsed.endpoint) : null;
         if (!catalog) return null;
         return {
@@ -135,7 +138,10 @@ export function writeShowcaseCatalogCache(
     storage: StorageLike | null = getBrowserStorage()
 ): boolean {
     if (!storage) return false;
-    const catalog = normalizeShowcaseCatalog(envelope.catalog, { allowUnsupportedRecipeVersions: true });
+    const catalog = normalizeShowcaseCatalog(envelope.catalog, {
+        allowUnsupportedRecipeVersions: true,
+        allowExtendedTopicMetadata: true
+    });
     if (!catalog) return false;
 
     try {
@@ -194,7 +200,8 @@ export async function loadShowcaseCatalog(
 
         const payload = await response.json();
         const normalizedCatalog = normalizeShowcaseCatalog(unwrapCatalogPayload(payload), {
-            allowUnsupportedRecipeVersions: true
+            allowUnsupportedRecipeVersions: true,
+            allowExtendedTopicMetadata: true
         });
         if (!normalizedCatalog) throw new Error('Showcase catalog response is invalid.');
         const catalog = resolveShowcaseCatalogMediaUrls(normalizedCatalog, endpoint);
@@ -243,6 +250,51 @@ export function getShowcaseCases(catalog: ShowcaseCatalog, topic: ShowcaseTopic)
     return catalog.cases
         .filter((showcaseCase) => order.has(showcaseCase.id))
         .sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0));
+}
+
+export type ShowcaseTopicInputSummary = {
+    minimumInputs: number;
+    maximumInputs: number;
+    inputRequirementsKnown: boolean;
+    needsMask: boolean;
+    roles: string[];
+    difficulties: ShowcaseCase['difficulty'][];
+    executableCases: number;
+};
+
+export function getShowcaseTopicInputSummary(catalog: ShowcaseCatalog, topic: ShowcaseTopic): ShowcaseTopicInputSummary {
+    const cases = getShowcaseCases(catalog, topic);
+    const executableCases = cases.filter((showcaseCase) => showcaseCase.unsupportedRecipeVersion === undefined);
+    const inputSource = executableCases;
+    const difficultySource = executableCases.length > 0 ? executableCases : cases;
+    const inputCounts = inputSource.map((showcaseCase) =>
+        showcaseCase.recipe.inputSlots.reduce(
+            (value, slot) => ({
+                minimum: value.minimum + slot.minCount,
+                maximum: value.maximum + slot.maxCount
+            }),
+            { minimum: 0, maximum: 0 }
+        )
+    );
+    const roles = [
+        ...new Set(
+            inputSource.flatMap((showcaseCase) =>
+                [...showcaseCase.recipe.inputSlots]
+                    .sort((left, right) => left.workbenchOrder - right.workbenchOrder)
+                    .map((slot) => slot.role)
+            )
+        )
+    ];
+    const difficulties = [...new Set(difficultySource.map((showcaseCase) => showcaseCase.difficulty))];
+    return {
+        minimumInputs: inputCounts.length > 0 ? Math.min(...inputCounts.map((item) => item.minimum)) : 0,
+        maximumInputs: inputCounts.length > 0 ? Math.max(...inputCounts.map((item) => item.maximum)) : 0,
+        inputRequirementsKnown: executableCases.length > 0,
+        needsMask: inputSource.some((showcaseCase) => showcaseCase.recipe.capabilityRequirements.supportsMask === true),
+        roles,
+        difficulties,
+        executableCases: executableCases.length
+    };
 }
 
 export function getShowcaseAsset(catalog: ShowcaseCatalog, assetId: string): ShowcaseAsset | null {

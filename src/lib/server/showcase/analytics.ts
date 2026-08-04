@@ -23,6 +23,21 @@ export type ShowcaseAnalyticsSummary = {
     cases: Array<{ topicId: string; caseId: string; event: string; count: number }>;
 };
 
+export type ShowcaseAnalyticsExportRow = {
+    id: string;
+    event: string;
+    topicId: string;
+    caseId: string | null;
+    catalogRevision: string | null;
+    position: number | null;
+    entryPoint: string | null;
+    runtime: string;
+    recipeVersion: number | null;
+    modelId: string | null;
+    errorCategory: string | null;
+    createdAt: number;
+};
+
 export function parseShowcaseAnalyticsBatch(value: unknown): ShowcaseAnalyticsEvent[] {
     if (!Array.isArray(value) || value.length < 1 || value.length > SHOWCASE_ANALYTICS_MAX_BATCH) {
         throw new Error('专题分析事件批次大小不合法。');
@@ -127,4 +142,55 @@ export async function getShowcaseAnalyticsSummary(
             .filter((row): row is typeof row & { caseId: string } => typeof row.caseId === 'string')
             .map((row) => ({ topicId: row.topicId, caseId: row.caseId, event: row.event, count: Number(row.count) }))
     };
+}
+
+/**
+ * Return an bounded, anonymous export for a controlled analytics sink.
+ * Deliberately omits request metadata, prompt content, image data and user IDs.
+ */
+export async function exportShowcaseAnalyticsRows(
+    from = Date.now() - 30 * 86_400_000,
+    to = Date.now(),
+    limit = 50_000
+): Promise<ShowcaseAnalyticsExportRow[]> {
+    const start = Math.min(from, to);
+    const end = Math.max(from, to);
+    const boundedLimit = Math.max(1, Math.min(50_000, Math.floor(limit)));
+    await getServerDatabaseReady();
+    const rows = getSqliteClient()
+        .prepare(
+            `SELECT "id", "eventName", "topicId", "caseId", "catalogRevision", "position", "entryPoint", "runtime", "recipeVersion", "modelId", "errorCategory", "createdAt"
+             FROM "showcase_events"
+             WHERE "createdAt" >= ? AND "createdAt" <= ?
+             ORDER BY "createdAt" ASC, rowid ASC
+             LIMIT ?;`
+        )
+        .all(start, end, boundedLimit) as Array<{
+        id: string;
+        eventName: string;
+        topicId: string;
+        caseId: string | null;
+        catalogRevision: string | null;
+        position: number | null;
+        entryPoint: string | null;
+        runtime: string;
+        recipeVersion: number | null;
+        modelId: string | null;
+        errorCategory: string | null;
+        createdAt: number;
+    }>;
+    return rows.map((row) => ({
+        id: row.id,
+        event: row.eventName,
+        topicId: row.topicId,
+        caseId: row.caseId,
+        catalogRevision: row.catalogRevision,
+        position: row.position,
+        entryPoint: row.entryPoint,
+        runtime: row.runtime,
+        recipeVersion: row.recipeVersion,
+        modelId: row.modelId,
+        errorCategory: row.errorCategory,
+        createdAt: row.createdAt
+    }));
 }

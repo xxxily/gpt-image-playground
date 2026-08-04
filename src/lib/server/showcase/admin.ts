@@ -171,7 +171,8 @@ async function createPublication(
             .get(row.id) as { revision: number };
         const revision = Number(revisionRow.revision) + 1;
         const catalogRevision = `topic-${row.id}-r${revision}-${publicationId.slice(0, 8)}`;
-        const catalog = buildCatalogFromTopicDraft(publicationDraft, catalogRevision, now.getTime());
+    const catalog = buildCatalogFromTopicDraft(publicationDraft, catalogRevision, now.getTime());
+    catalog.topics[0] = { ...catalog.topics[0]!, publishedAt: now.getTime() };
         const snapshotJson = publicationSnapshot({
             topic: catalog.topics[0]!,
             cases: catalog.cases,

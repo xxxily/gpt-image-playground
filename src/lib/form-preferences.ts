@@ -5,6 +5,7 @@ import { isSizePresetValue, type SizePreset } from '@/lib/size-utils';
 import type { ImageBackground, ImageModeration, ImageOutputFormat, ImageQuality } from '@/types/history';
 
 const FORM_PREFERENCES_STORAGE_KEY = 'gpt-image-playground-form-options';
+export const FORM_PREFERENCES_CHANGED_EVENT = 'gpt-image-playground-form-preferences-changed';
 
 const QUALITY_VALUES = ['low', 'medium', 'high', 'auto'] as const;
 const OUTPUT_FORMAT_VALUES = ['png', 'jpeg', 'webp'] as const;
@@ -143,6 +144,7 @@ export function saveImageFormPreferences(preferences: ImageFormPreferences): voi
 
     try {
         window.localStorage.setItem(FORM_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+        window.dispatchEvent(new CustomEvent(FORM_PREFERENCES_CHANGED_EVENT));
     } catch (error) {
         console.warn('Failed to save image form preferences:', error);
     }

@@ -35,6 +35,7 @@ type DefaultTopicSpec = {
     preparation: ShowcaseLocalizedText;
     limitations: ShowcaseLocalizedText;
     tags: ShowcaseLocalizedText[];
+    categories?: ShowcaseLocalizedText[];
     cases: DefaultCaseSpec[];
 };
 
@@ -302,6 +303,7 @@ const DEFAULT_TOPIC_SPECS: DefaultTopicSpec[] = [
             'AI may infer missing faces, clothing, or period details. Compare important images with the original and do not treat reconstructions as historical fact.'
         ),
         tags: [text('修复', 'Restoration'), text('老照片', 'Old photos'), text('单图编辑', 'Single-image edit')],
+        categories: [text('修复', 'Restoration')],
         cases: [
             {
                 slug: 'scratch-removal',
@@ -374,6 +376,7 @@ const DEFAULT_TOPIC_SPECS: DefaultTopicSpec[] = [
             'Results are visual previews only and do not represent real sizing, fit, drape, or purchase outcomes. Review identity and garment details manually.'
         ),
         tags: [text('穿搭', 'Fashion'), text('多图编辑', 'Multi-image edit'), text('人物', 'Portrait')],
+        categories: [text('人像', 'Portrait'), text('商品', 'Product')],
         cases: [
             {
                 slug: 'casual-top',
@@ -453,6 +456,7 @@ const DEFAULT_TOPIC_SPECS: DefaultTopicSpec[] = [
             'Stylization reinterprets texture, color, and detail and may alter text, logos, or identity. Inspect the result closely before publishing.'
         ),
         tags: [text('风格化', 'Stylization'), text('创意', 'Creative'), text('单图编辑', 'Single-image edit')],
+        categories: [text('风格化', 'Stylization')],
         cases: [
             {
                 slug: 'watercolor',
@@ -526,6 +530,7 @@ const DEFAULT_TOPIC_SPECS: DefaultTopicSpec[] = [
             'Generated results may alter fine text, logos, ports, or material details. Compare every commercial result with the real product and brand guidelines.'
         ),
         tags: [text('电商', 'E-commerce'), text('商品', 'Product'), text('营销视觉', 'Marketing visual')],
+        categories: [text('商品', 'Product'), text('营销', 'Marketing')],
         cases: [
             {
                 slug: 'clean-background',
@@ -602,6 +607,7 @@ const DEFAULT_TOPIC_SPECS: DefaultTopicSpec[] = [
             'Enhancement and repainting may invent texture, text, or background detail. Manually verify results used for products, evidence, or records.'
         ),
         tags: [text('增强', 'Enhancement'), text('清理', 'Cleanup'), text('现代照片', 'Modern photos')],
+        categories: [text('修复', 'Restoration')],
         cases: [
             {
                 slug: 'modern-photo-clarity',
@@ -675,6 +681,7 @@ const DEFAULT_TOPIC_SPECS: DefaultTopicSpec[] = [
             'AI may alter facial features, hair, clothing, or skin texture. Results must not be used directly for legal ID, biometrics, or identity verification.'
         ),
         tags: [text('人像', 'Portrait'), text('头像', 'Headshot'), text('身份一致性', 'Identity consistency')],
+        categories: [text('人像', 'Portrait')],
         cases: [
             {
                 slug: 'professional-headshot',
@@ -790,6 +797,8 @@ function buildDefaultShowcaseCatalog(): ShowcaseCatalog {
                 DEFAULT_TOPIC_SPECS[(topicIndex + 2) % DEFAULT_TOPIC_SPECS.length]!.id
             ],
             tags: topicSpec.tags,
+            ...(topicSpec.categories ? { categories: topicSpec.categories } : {}),
+            publishedAt: GENERATED_AT + topicIndex,
             featured: true,
             sortOrder: (topicIndex + 1) * 100,
             coverAssetId: topicCases[0].coverAssetId,

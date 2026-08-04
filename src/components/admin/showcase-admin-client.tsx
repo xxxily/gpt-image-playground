@@ -57,7 +57,8 @@ import {
     Search,
     Sparkles,
     StopCircle,
-    Trash2
+    Trash2,
+    Download
 } from 'lucide-react';
 import * as React from 'react';
 
@@ -584,6 +585,11 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
         [analyticsSummary]
     );
 
+    const exportAnalytics = () => {
+        if (!canWrite || typeof window === 'undefined') return;
+        window.location.assign('/api/admin/showcase-metrics?days=30&format=ndjson');
+    };
+
     return (
         <section className='space-y-6'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
@@ -642,6 +648,10 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                             disabled={Boolean(busyKey)}>
                             <RefreshCw className='size-4 motion-reduce:animate-none' />
                             {t('admin.showcases.analytics.refresh')}
+                        </Button>
+                        <Button variant='outline' size='sm' onClick={exportAnalytics} disabled={!canWrite}>
+                            <Download className='size-4' />
+                            {t('admin.showcases.analytics.export')}
                         </Button>
                     </div>
                 </CardHeader>
@@ -975,6 +985,30 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                                 />
                                                 <span className='text-muted-foreground block text-xs'>
                                                     {t('admin.showcases.field.tagsHint')}
+                                                </span>
+                                            </label>
+
+                                            <label className='block space-y-1.5 text-sm'>
+                                                <span className='font-medium'>
+                                                    {t('admin.showcases.field.categories')}
+                                                </span>
+                                                <Textarea
+                                                    name='showcase-topic-categories'
+                                                    value={stringifyTagLines(parsedDraft.topic.categories ?? [])}
+                                                    disabled={!canWrite}
+                                                    onChange={(event) =>
+                                                        updateStructuredDraft((draft) => {
+                                                            const categories = parseTagLines(event.target.value);
+                                                            const topic = { ...draft.topic };
+                                                            if (categories.length > 0) topic.categories = categories;
+                                                            else delete topic.categories;
+                                                            return { ...draft, topic };
+                                                        })
+                                                    }
+                                                    className='min-h-20 font-mono text-xs'
+                                                />
+                                                <span className='text-muted-foreground block text-xs'>
+                                                    {t('admin.showcases.field.categoriesHint')}
                                                 </span>
                                             </label>
 

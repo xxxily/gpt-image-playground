@@ -34,7 +34,7 @@ export function normalizeShowcaseTopicDraft(value: unknown): ShowcaseTopicDraft 
             cases: record.cases,
             assets: record.assets
         },
-        { allowDanglingRelatedTopicIds: true }
+        { allowDanglingRelatedTopicIds: true, allowExtendedTopicMetadata: true }
     );
     if (!candidate || candidate.topics.length !== 1) return null;
 
@@ -58,7 +58,7 @@ export function buildCatalogFromTopicDraft(
             cases: draft.cases,
             assets: draft.assets
         },
-        { allowDanglingRelatedTopicIds: true }
+        { allowDanglingRelatedTopicIds: true, allowExtendedTopicMetadata: true }
     );
     if (!catalog) throw new Error('专题草稿不完整或包含不安全内容。');
     return catalog;

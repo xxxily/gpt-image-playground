@@ -11,7 +11,7 @@ function expectCompleteLocalization(value: ShowcaseLocalizedText): void {
 
 describe('DEFAULT_SHOWCASE_CATALOG', () => {
     it('is a valid normalized v1 catalog with six topics and twenty-four cases', () => {
-        const normalized = normalizeShowcaseCatalog(DEFAULT_SHOWCASE_CATALOG);
+        const normalized = normalizeShowcaseCatalog(DEFAULT_SHOWCASE_CATALOG, { allowExtendedTopicMetadata: true });
 
         expect(normalized).toEqual(DEFAULT_SHOWCASE_CATALOG);
         expect(DEFAULT_SHOWCASE_CATALOG.schemaVersion).toBe(1);
@@ -39,6 +39,8 @@ describe('DEFAULT_SHOWCASE_CATALOG', () => {
             expectCompleteLocalization(topic.limitations);
             expect(topic.tags.length).toBeGreaterThan(0);
             topic.tags.forEach(expectCompleteLocalization);
+            expect(topic.categories?.length).toBeGreaterThan(0);
+            topic.categories?.forEach(expectCompleteLocalization);
         }
 
         for (const showcaseCase of DEFAULT_SHOWCASE_CATALOG.cases) {

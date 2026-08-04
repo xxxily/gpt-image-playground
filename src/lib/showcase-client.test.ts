@@ -5,6 +5,7 @@ import {
     getShowcaseCase,
     getShowcaseCases,
     getShowcaseTopic,
+    getShowcaseTopicInputSummary,
     loadShowcaseCatalog,
     readShowcaseCatalogCache,
     SHOWCASE_CATALOG_CACHE_KEY,
@@ -125,5 +126,28 @@ describe('showcase catalog client', () => {
         expect(topic).not.toBeNull();
         expect(getShowcaseCases(DEFAULT_SHOWCASE_CATALOG, topic!)).toHaveLength(4);
         expect(getShowcaseCase(DEFAULT_SHOWCASE_CATALOG, topic!, 'scratch-removal')?.topicId).toBe(topic!.id);
+    });
+
+    it('does not infer image requirements from a read-only future recipe', () => {
+        const sourceTopic = getShowcaseTopic(DEFAULT_SHOWCASE_CATALOG, 'old-photo-restoration')!;
+        const sourceCase = getShowcaseCases(DEFAULT_SHOWCASE_CATALOG, sourceTopic)[0]!;
+        const futureCase = {
+            ...sourceCase,
+            recipe: { ...sourceCase.recipe, inputSlots: [] },
+            unsupportedRecipeVersion: 2
+        };
+        const futureTopic = { ...sourceTopic, caseIds: [futureCase.id] };
+        const futureCatalog = {
+            ...DEFAULT_SHOWCASE_CATALOG,
+            topics: [futureTopic],
+            cases: [futureCase]
+        };
+
+        expect(getShowcaseTopicInputSummary(futureCatalog, futureTopic)).toMatchObject({
+            minimumInputs: 0,
+            maximumInputs: 0,
+            inputRequirementsKnown: false,
+            executableCases: 0
+        });
     });
 });

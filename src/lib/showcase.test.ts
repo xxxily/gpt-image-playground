@@ -345,7 +345,7 @@ describe('normalizeShowcaseCatalog', () => {
         expect(normalizeShowcaseCatalog(normalized, { allowUnsupportedRecipeVersions: true })).toEqual(normalized);
     });
 
-    it('drops a pathological future case instead of invalidating valid siblings', () => {
+    it('preserves display media for a future case without turning it into executable input slots', () => {
         const futureCase = {
             ...showcaseCase({ id: 'case-future', slug: 'case-future' }),
             inputAssetIds: Array.from({ length: 17 }, (_, index) => `input-${index}`),
@@ -364,7 +364,12 @@ describe('normalizeShowcaseCatalog', () => {
             { allowUnsupportedRecipeVersions: true }
         );
 
-        expect(normalized?.cases.map((item) => item.id)).toEqual(['case-one']);
-        expect(normalized?.topics[0]?.caseIds).toEqual(['case-one']);
+        const normalizedFutureCase = normalized?.cases.find((item) => item.id === 'case-future');
+        expect(normalized?.cases.map((item) => item.id)).toEqual(['case-one', 'case-future']);
+        expect(normalized?.topics[0]?.caseIds).toEqual(['case-one', 'case-future']);
+        expect(normalizedFutureCase?.inputAssetIds).toHaveLength(17);
+        expect(normalizedFutureCase?.recipe.inputSlots).toEqual([]);
+        expect(normalizedFutureCase && isExecutableShowcaseCase(normalizedFutureCase)).toBe(false);
+        expect(normalizeShowcaseCatalog(normalized, { allowUnsupportedRecipeVersions: true })).toEqual(normalized);
     });
 });

@@ -38,7 +38,15 @@ export function toPublicShowcaseWireCatalog(
             .map((item) => item.id)
     );
     const topics = catalog.topics
-        .map((topic) => ({ ...topic, caseIds: topic.caseIds.filter((caseId) => executableCaseIds.has(caseId)) }))
+        .map((topic) => {
+            if (options.supportsExtendedCases) {
+                return { ...topic, caseIds: topic.caseIds.filter((caseId) => executableCaseIds.has(caseId)) };
+            }
+            const legacyTopic = { ...topic } as ShowcaseTopic & { categories?: unknown; publishedAt?: unknown };
+            Reflect.deleteProperty(legacyTopic, 'categories');
+            Reflect.deleteProperty(legacyTopic, 'publishedAt');
+            return { ...legacyTopic, caseIds: topic.caseIds.filter((caseId) => executableCaseIds.has(caseId)) };
+        })
         .filter((topic) => topic.caseIds.length > 0);
     const topicIds = new Set(topics.map((topic) => topic.id));
     const cases = catalog.cases.filter(
@@ -105,7 +113,11 @@ export function parseShowcasePublicationSnapshot(value: string): PublicationSnap
                 cases: parsed.cases,
                 assets: parsed.assets
             },
-            { allowDanglingRelatedTopicIds: true, allowUnsupportedRecipeVersions: true }
+            {
+                allowDanglingRelatedTopicIds: true,
+                allowUnsupportedRecipeVersions: true,
+                allowExtendedTopicMetadata: true
+            }
         );
         const topic = normalized?.topics[0];
         return normalized && topic ? { topic, cases: normalized.cases, assets: normalized.assets } : null;
@@ -186,7 +198,11 @@ export async function getPublicShowcaseCatalog(now = new Date()): Promise<Showca
                 cases: candidates.flatMap((candidate) => candidate.snapshot.cases),
                 assets
             },
-            { allowDanglingRelatedTopicIds: true, allowUnsupportedRecipeVersions: true }
+            {
+                allowDanglingRelatedTopicIds: true,
+                allowUnsupportedRecipeVersions: true,
+                allowExtendedTopicMetadata: true
+            }
         );
         if (candidateCatalog) acceptedEntries.push(entry);
     }
@@ -203,7 +219,12 @@ export async function getPublicShowcaseCatalog(now = new Date()): Promise<Showca
         .update(acceptedEntries.map((entry) => entry.row.catalogRevision).join('\n'))
         .digest('hex')
         .slice(0, 32);
-    const publishedTopics = retainPublishedRelatedTopics(acceptedEntries.map((entry) => entry.snapshot.topic));
+    const publishedTopics = retainPublishedRelatedTopics(
+        acceptedEntries.map((entry) => ({
+            ...entry.snapshot.topic,
+            publishedAt: entry.row.publishedAt.getTime()
+        }))
+    );
     const publishedAssets = mergePublicationAssets(acceptedEntries);
     if (!publishedAssets) {
         return {
@@ -222,7 +243,7 @@ export async function getPublicShowcaseCatalog(now = new Date()): Promise<Showca
             cases: acceptedEntries.flatMap((entry) => entry.snapshot.cases),
             assets: publishedAssets
         },
-        { allowUnsupportedRecipeVersions: true }
+        { allowUnsupportedRecipeVersions: true, allowExtendedTopicMetadata: true }
     );
     if (!catalog) {
         return {
@@ -255,7 +276,7 @@ export async function getPublicShowcaseTopic(slugOrId: string): Promise<Showcase
             cases,
             assets: result.catalog.assets.filter((asset) => assetIds.has(asset.id))
         },
-        { allowUnsupportedRecipeVersions: true }
+        { allowUnsupportedRecipeVersions: true, allowExtendedTopicMetadata: true }
     );
     if (!catalog) return null;
     return { ...result, catalog, etag: etagForShowcaseCatalog(catalog) };

@@ -24,11 +24,14 @@ export function buildShowcaseWorkbenchHref(topicSlug: string, caseSlug: string):
 }
 
 export type ShowcaseDirectoryInputFilter = 'all' | 'none' | 'single' | 'multiple' | 'mask';
+export type ShowcaseDirectorySort = 'recommended' | 'latest' | 'easy';
 
 export type ShowcaseDirectoryFilters = {
     query?: string;
     input?: ShowcaseDirectoryInputFilter;
     tag?: string;
+    category?: string;
+    sort?: ShowcaseDirectorySort;
 };
 
 export function buildShowcaseDirectoryHref(filters: ShowcaseDirectoryFilters): string {
@@ -36,9 +39,13 @@ export function buildShowcaseDirectoryHref(filters: ShowcaseDirectoryFilters): s
     const query = filters.query?.trim();
     const input = filters.input ?? 'all';
     const tag = filters.tag?.trim();
+    const category = filters.category?.trim();
+    const sort = filters.sort ?? 'recommended';
     if (query) params.set('q', query);
     if (input !== 'all') params.set('input', input);
     if (tag) params.set('tag', tag);
+    if (category) params.set('category', category);
+    if (sort !== 'recommended') params.set('sort', sort);
     const suffix = params.toString();
     return suffix ? `/topics?${suffix}` : '/topics';
 }

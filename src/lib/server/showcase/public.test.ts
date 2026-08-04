@@ -38,6 +38,7 @@ describe('showcase public catalog wire format', () => {
             height: 800
         });
         expect(normalizeShowcaseCatalog(wire)).toEqual(wire);
+        expect(wire.topics[0]).not.toHaveProperty('categories');
     });
 
     it('keeps an absolute managed thumbnail for the extended client contract', () => {
@@ -52,7 +53,13 @@ describe('showcase public catalog wire format', () => {
             thumbnailUrl:
                 'https://content.example/api/showcase-media/media_0123456789abcdef0123456789abcdef?variant=thumbnail'
         });
-        expect(normalizeShowcaseCatalog(wire, { allowUnsupportedRecipeVersions: true })).toEqual(wire);
+        expect(
+            normalizeShowcaseCatalog(wire, {
+                allowUnsupportedRecipeVersions: true,
+                allowExtendedTopicMetadata: true
+            })
+        ).toEqual(wire);
+        expect(wire.topics[0]?.categories).toEqual(catalog.topics[0]?.categories);
     });
 
     it('keeps managed identifiers on local HTTP so the current client can validate relative URLs', () => {

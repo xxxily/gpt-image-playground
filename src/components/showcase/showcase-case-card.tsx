@@ -20,7 +20,7 @@ export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseC
     const executable = isExecutableShowcaseCase(showcaseCase);
 
     return (
-        <article className='app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-2xl border transition-[border-color,box-shadow,transform] duration-200 focus-within:border-violet-500/45 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 motion-reduce:transform-none'>
+        <article className='app-panel-subtle flex min-w-0 flex-col overflow-hidden rounded-2xl border transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/45 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 motion-reduce:transform-none'>
             <div className='p-3 pb-0'>
                 <ShowcaseComparison catalog={catalog} showcaseCase={showcaseCase} compact />
             </div>
@@ -35,6 +35,16 @@ export function ShowcaseCaseCard({ catalog, topic, showcaseCase }: ShowcaseCaseC
                             ? t('showcase.case.referenceCount', { count: showcaseCase.recipe.inputSlots.length })
                             : t('showcase.case.updateRequired')}
                     </span>
+                </div>
+
+                <div className='text-on-panel-faint flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+                    {isExecutableShowcaseCase(showcaseCase)
+                        ? showcaseCase.recipe.inputSlots
+                              .slice()
+                              .sort((left, right) => left.workbenchOrder - right.workbenchOrder)
+                              .map((slot) => getLocalizedShowcaseText(slot.label, language))
+                              .join(' · ')
+                        : t('showcase.case.inputRequirementsUnknown')}
                 </div>
 
                 <div className='min-w-0 space-y-1.5'>

@@ -12,6 +12,7 @@ import { useAppLanguage } from '@/components/app-language-provider';
 import { Button } from '@/components/ui/button';
 import { isExecutableShowcaseCase, type ShowcaseCase, type ShowcaseCatalog, type ShowcaseTopic } from '@/lib/showcase';
 import { getShowcaseCases } from '@/lib/showcase-client';
+import { copyTextToClipboard } from '@/lib/desktop-runtime';
 import {
     AlertTriangle,
     ArrowLeft,
@@ -25,6 +26,7 @@ import {
     Sparkles
 } from 'lucide-react';
 import Link from 'next/link';
+import * as React from 'react';
 
 function InformationPanel({
     icon,
@@ -252,6 +254,13 @@ export function ShowcaseCaseDetail({
                   : 'showcase.recipe.imageGenerate'
           )
         : t('showcase.recipe.unknown');
+    const [promptCopyStatus, setPromptCopyStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
+
+    const copyPrompt = async () => {
+        const copied = await copyTextToClipboard(prompt);
+        setPromptCopyStatus(copied ? 'success' : 'error');
+        if (copied) window.setTimeout(() => setPromptCopyStatus('idle'), 1800);
+    };
 
     return (
         <div className='space-y-5'>
@@ -398,10 +407,28 @@ export function ShowcaseCaseDetail({
                             {t('showcase.case.promptTitle')}
                         </h2>
                     </div>
-                    <p className='text-on-panel-muted mt-2 text-sm leading-6'>{t('showcase.case.promptDescription')}</p>
-                    <div className='border-panel-divider bg-panel-ghost text-foreground mt-4 max-h-64 overflow-auto rounded-xl border p-4 text-sm leading-7 whitespace-pre-wrap'>
-                        {prompt}
+                    <p className='text-on-panel-muted mt-2 text-sm leading-6'>
+                        {t(executable ? 'showcase.case.promptDescription' : 'showcase.case.readOnlyPromptDescription')}
+                    </p>
+                    <div className='relative mt-4'>
+                        <div className='border-panel-divider bg-panel-ghost text-foreground max-h-64 overflow-auto rounded-xl border p-4 pr-12 text-sm leading-7 whitespace-pre-wrap'>
+                            {prompt}
+                        </div>
+                        <button
+                            type='button'
+                            onClick={() => void copyPrompt()}
+                            className='border-panel-divider bg-background text-on-panel-muted hover:bg-panel-subtle focus-visible:ring-ring/50 absolute top-2 right-2 flex size-8 items-center justify-center rounded-md border outline-none focus-visible:ring-[3px]'
+                            aria-label={t('showcase.case.copyPrompt')}>
+                            <ClipboardList className='size-3.5' aria-hidden='true' />
+                        </button>
                     </div>
+                    <p className='text-on-panel-faint mt-2 text-xs' role='status' aria-live='polite'>
+                        {promptCopyStatus === 'success'
+                            ? t('showcase.case.promptCopied')
+                            : promptCopyStatus === 'error'
+                              ? t('showcase.case.promptCopyFailed')
+                              : null}
+                    </p>
                     <div className='text-on-panel-muted mt-3 flex items-start gap-2 text-xs leading-5'>
                         <Info className='mt-0.5 size-3.5 shrink-0' aria-hidden='true' />
                         <span>{t('showcase.case.promptHint')}</span>

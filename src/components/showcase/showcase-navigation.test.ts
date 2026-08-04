@@ -23,8 +23,16 @@ describe('showcase navigation', () => {
     });
 
     it('builds shareable directory filter links without empty defaults', () => {
-        expect(buildShowcaseDirectoryHref({ query: '照片 修复', input: 'single', tag: '新手' })).toBe(
-            '/topics?q=%E7%85%A7%E7%89%87+%E4%BF%AE%E5%A4%8D&input=single&tag=%E6%96%B0%E6%89%8B'
+        expect(
+            buildShowcaseDirectoryHref({
+                query: '照片 修复',
+                input: 'single',
+                tag: '新手',
+                category: '修复',
+                sort: 'easy'
+            })
+        ).toBe(
+            '/topics?q=%E7%85%A7%E7%89%87+%E4%BF%AE%E5%A4%8D&input=single&tag=%E6%96%B0%E6%89%8B&category=%E4%BF%AE%E5%A4%8D&sort=easy'
         );
         expect(buildShowcaseDirectoryHref({ input: 'all' })).toBe('/topics');
     });
