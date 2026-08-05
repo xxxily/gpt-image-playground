@@ -370,7 +370,7 @@
 
 | 检查项 | 最终结果 | 状态 |
 | ------ | -------- | ---- |
-| commit / tag / push | 发布提交 `d2c4af7`；annotated tag `v2.15.11` 解引用到该提交；远端 `master` 为包含旧版 `mawk` 兼容修复的 `4dbb527` | 已完成 (Completed) |
+| commit / tag / push | 发布提交 `d2c4af7`；annotated tag `v2.15.11` 解引用到该提交；旧版 `mawk` 兼容修复 `4dbb527` 已包含在远端 `master`，后续文档提交不改写 tag | 已完成 (Completed) |
 | GitHub Actions | Run [`30966310596`](https://github.com/xxxily/gpt-image-playground/actions/runs/30966310596) 的校验、Release 准备、Android、macOS、Windows、Linux 和正式发布共 7 个 jobs 全部成功 | 已完成 (Completed) |
 | GitHub Release | [v2.15.11](https://github.com/xxxily/gpt-image-playground/releases/tag/v2.15.11) 为正式版、非 prerelease，共 15 个 uploaded 资产 | 已完成 (Completed) |
 | 129 生产 | `current` 指向 `20260805100205-v2.15.11`；systemd `active`；Node `20.20.2`；`161-docker` / `linux-glibc228`；专题媒体新增 schema 字段 9/9 存在 | 已完成 (Completed) |
