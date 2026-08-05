@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { translateMessage } from '@/lib/i18n/translator';
+import type { ShowcaseAssetProvenanceType } from '@/lib/server/schema';
 import type { ShowcaseAnalyticsSummary } from '@/lib/server/showcase/analytics';
 import type { ShowcaseManagedAsset } from '@/lib/server/showcase/media';
 import type { ShowcaseAdminTopic, ShowcasePublicationSummary, ShowcaseTopicDraft } from '@/lib/server/showcase/types';
@@ -171,6 +172,23 @@ function toDateTimeLocal(value: number | null): string {
     return local.toISOString().slice(0, 16);
 }
 
+function createMediaUploadDraft() {
+    return {
+        file: null as File | null,
+        sourceLabel: '',
+        licenseNote: '',
+        provenanceType: 'licensed-source' as ShowcaseAssetProvenanceType,
+        generationModelId: '',
+        generationRecipeVersion: '1',
+        generatedAt: toDateTimeLocal(Date.now()),
+        candidateCount: '1',
+        reviewApproved: false,
+        reviewNote: '',
+        altZhCN: '',
+        altEnUS: ''
+    };
+}
+
 function StatusBadge({ status }: { status: ShowcaseAdminTopic['status'] }) {
     const { t } = useAppLanguage();
     const tone =
@@ -256,16 +274,28 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
     const [mediaDialogOpen, setMediaDialogOpen] = React.useState(false);
     const [customSizeDrafts, setCustomSizeDrafts] = React.useState<Record<string, string>>({});
     const [mediaTarget, setMediaTarget] = React.useState<ShowcaseMediaTarget>({ kind: 'topic-cover' });
-    const [mediaUpload, setMediaUpload] = React.useState({
-        file: null as File | null,
-        sourceLabel: '',
-        licenseNote: '',
-        altZhCN: '',
-        altEnUS: ''
-    });
+    const [mediaUpload, setMediaUpload] = React.useState(createMediaUploadDraft);
     const [analyticsSummary, setAnalyticsSummary] = React.useState<ShowcaseAnalyticsSummary | null>(null);
 
     const selectedTopic = topics.find((topic) => topic.id === selectedId) ?? null;
+    const aiGenerationMetadataReady =
+        mediaUpload.provenanceType !== 'ai-generated' ||
+        (Boolean(mediaUpload.generationModelId.trim()) &&
+            Number.isInteger(Number(mediaUpload.generationRecipeVersion)) &&
+            Number(mediaUpload.generationRecipeVersion) > 0 &&
+            Number.isFinite(Date.parse(mediaUpload.generatedAt)) &&
+            Number.isInteger(Number(mediaUpload.candidateCount)) &&
+            Number(mediaUpload.candidateCount) > 0 &&
+            mediaUpload.reviewApproved &&
+            Boolean(mediaUpload.reviewNote.trim()));
+    const mediaUploadReady = Boolean(
+        mediaUpload.file &&
+        mediaUpload.sourceLabel.trim() &&
+        mediaUpload.licenseNote.trim() &&
+        mediaUpload.altZhCN.trim() &&
+        mediaUpload.altEnUS.trim() &&
+        aiGenerationMetadataReady
+    );
 
     const filteredTopics = React.useMemo(() => {
         const query = search.trim().toLocaleLowerCase();
@@ -563,6 +593,15 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
             formData.set('file', mediaUpload.file);
             formData.set('sourceLabel', mediaUpload.sourceLabel);
             formData.set('licenseNote', mediaUpload.licenseNote);
+            formData.set('provenanceType', mediaUpload.provenanceType);
+            if (mediaUpload.provenanceType === 'ai-generated') {
+                formData.set('generationModelId', mediaUpload.generationModelId);
+                formData.set('generationRecipeVersion', mediaUpload.generationRecipeVersion);
+                formData.set('generatedAt', String(Date.parse(mediaUpload.generatedAt)));
+                formData.set('candidateCount', mediaUpload.candidateCount);
+                formData.set('reviewApproved', String(mediaUpload.reviewApproved));
+                formData.set('reviewNote', mediaUpload.reviewNote);
+            }
             formData.set('altZhCN', mediaUpload.altZhCN);
             formData.set('altEnUS', mediaUpload.altEnUS);
             const payload = await requestFormJson<{ asset: ShowcaseManagedAsset }>(
@@ -570,7 +609,7 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                 formData
             );
             setManagedAssets((items) => [payload.asset, ...items.filter((item) => item.id !== payload.asset.id)]);
-            setMediaUpload({ file: null, sourceLabel: '', licenseNote: '', altZhCN: '', altEnUS: '' });
+            setMediaUpload(createMediaUploadDraft());
             assignManagedAsset(payload.asset, target);
             addNotice(t('admin.showcases.media.uploaded'), 'success');
         } catch (error) {
@@ -2680,7 +2719,29 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                     setMediaUpload((value) => ({ ...value, file: event.target.files?.[0] ?? null }))
                                 }
                             />
-                            {(['sourceLabel', 'licenseNote', 'altZhCN', 'altEnUS'] as const).map((field) => (
+                            <label className='block space-y-1 text-sm'>
+                                <span className='font-medium'>{t('admin.showcases.media.provenanceType')}</span>
+                                <select
+                                    value={mediaUpload.provenanceType}
+                                    disabled={!canWrite}
+                                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                                    onChange={(event) =>
+                                        setMediaUpload((value) => ({
+                                            ...value,
+                                            provenanceType: event.target.value as ShowcaseAssetProvenanceType,
+                                            reviewApproved:
+                                                event.target.value === 'ai-generated' ? value.reviewApproved : false
+                                        }))
+                                    }>
+                                    <option value='licensed-source'>
+                                        {t('admin.showcases.media.provenance.licensed-source')}
+                                    </option>
+                                    <option value='ai-generated'>
+                                        {t('admin.showcases.media.provenance.ai-generated')}
+                                    </option>
+                                </select>
+                            </label>
+                            {(['sourceLabel', 'licenseNote'] as const).map((field) => (
                                 <label key={field} className='block space-y-1 text-sm'>
                                     <span className='font-medium'>{t(`admin.showcases.media.${field}`)}</span>
                                     {field === 'licenseNote' ? (
@@ -2703,9 +2764,126 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                     )}
                                 </label>
                             ))}
+                            {mediaUpload.provenanceType === 'ai-generated' ? (
+                                <fieldset className='border-border bg-background/55 space-y-3 rounded-xl border p-3'>
+                                    <legend className='px-1 text-sm font-semibold'>
+                                        {t('admin.showcases.media.generationEvidence')}
+                                    </legend>
+                                    <p className='text-muted-foreground text-xs leading-5'>
+                                        {t('admin.showcases.media.generationEvidenceDescription')}
+                                    </p>
+                                    <label className='block space-y-1 text-sm'>
+                                        <span className='font-medium'>
+                                            {t('admin.showcases.media.generationModelId')}
+                                        </span>
+                                        <Input
+                                            value={mediaUpload.generationModelId}
+                                            disabled={!canWrite}
+                                            placeholder={t('admin.showcases.media.generationModelIdPlaceholder')}
+                                            onChange={(event) =>
+                                                setMediaUpload((value) => ({
+                                                    ...value,
+                                                    generationModelId: event.target.value
+                                                }))
+                                            }
+                                        />
+                                    </label>
+                                    <div className='grid gap-3 sm:grid-cols-2'>
+                                        <label className='block space-y-1 text-sm'>
+                                            <span className='font-medium'>
+                                                {t('admin.showcases.media.generationRecipeVersion')}
+                                            </span>
+                                            <Input
+                                                type='number'
+                                                min={1}
+                                                value={mediaUpload.generationRecipeVersion}
+                                                disabled={!canWrite}
+                                                onChange={(event) =>
+                                                    setMediaUpload((value) => ({
+                                                        ...value,
+                                                        generationRecipeVersion: event.target.value
+                                                    }))
+                                                }
+                                            />
+                                        </label>
+                                        <label className='block space-y-1 text-sm'>
+                                            <span className='font-medium'>
+                                                {t('admin.showcases.media.candidateCount')}
+                                            </span>
+                                            <Input
+                                                type='number'
+                                                min={1}
+                                                value={mediaUpload.candidateCount}
+                                                disabled={!canWrite}
+                                                onChange={(event) =>
+                                                    setMediaUpload((value) => ({
+                                                        ...value,
+                                                        candidateCount: event.target.value
+                                                    }))
+                                                }
+                                            />
+                                        </label>
+                                    </div>
+                                    <label className='block space-y-1 text-sm'>
+                                        <span className='font-medium'>{t('admin.showcases.media.generatedAt')}</span>
+                                        <Input
+                                            type='datetime-local'
+                                            value={mediaUpload.generatedAt}
+                                            disabled={!canWrite}
+                                            onChange={(event) =>
+                                                setMediaUpload((value) => ({
+                                                    ...value,
+                                                    generatedAt: event.target.value
+                                                }))
+                                            }
+                                        />
+                                    </label>
+                                    <label className='block space-y-1 text-sm'>
+                                        <span className='font-medium'>{t('admin.showcases.media.reviewNote')}</span>
+                                        <Textarea
+                                            value={mediaUpload.reviewNote}
+                                            disabled={!canWrite}
+                                            className='min-h-20'
+                                            onChange={(event) =>
+                                                setMediaUpload((value) => ({
+                                                    ...value,
+                                                    reviewNote: event.target.value
+                                                }))
+                                            }
+                                        />
+                                    </label>
+                                    <label className='border-border flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm'>
+                                        <Checkbox
+                                            checked={mediaUpload.reviewApproved}
+                                            disabled={!canWrite}
+                                            onCheckedChange={(checked) =>
+                                                setMediaUpload((value) => ({
+                                                    ...value,
+                                                    reviewApproved: checked === true
+                                                }))
+                                            }
+                                        />
+                                        <span className='min-w-0 leading-5'>
+                                            {t('admin.showcases.media.reviewApproved')}
+                                        </span>
+                                    </label>
+                                </fieldset>
+                            ) : null}
+                            {(['altZhCN', 'altEnUS'] as const).map((field) => (
+                                <label key={field} className='block space-y-1 text-sm'>
+                                    <span className='font-medium'>{t(`admin.showcases.media.${field}`)}</span>
+                                    <Input
+                                        value={mediaUpload[field]}
+                                        disabled={!canWrite}
+                                        onChange={(event) =>
+                                            setMediaUpload((value) => ({ ...value, [field]: event.target.value }))
+                                        }
+                                    />
+                                </label>
+                            ))}
                             <Button
                                 className='w-full'
-                                disabled={!canWrite || !mediaUpload.file || Boolean(busyKey)}
+                                disabled={!canWrite || !mediaUploadReady || Boolean(busyKey)}
                                 onClick={() => void uploadManagedAsset()}>
                                 {busyKey === 'media-upload' ? (
                                     <Loader2 className='animate-spin motion-reduce:animate-none' />
@@ -2723,6 +2901,16 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                         className='aspect-[4/3] w-full object-cover'
                                     />
                                     <div className='space-y-2 p-3'>
+                                        <div className='flex flex-wrap items-center gap-1.5'>
+                                            <span className='border-border bg-muted text-muted-foreground rounded-full border px-2 py-0.5 text-[11px]'>
+                                                {t(`admin.showcases.media.provenance.${asset.provenanceType}`)}
+                                            </span>
+                                            {asset.provenanceType === 'ai-generated' ? (
+                                                <span className='rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300'>
+                                                    {t(`admin.showcases.media.review.${asset.reviewStatus}`)}
+                                                </span>
+                                            ) : null}
+                                        </div>
                                         <p className='line-clamp-2 text-sm font-medium'>{asset.alt['zh-CN']}</p>
                                         <p className='text-muted-foreground text-xs' data-i18n-skip='true'>
                                             {asset.width}×{asset.height} · {Math.round(asset.byteSize / 1024)} KB
@@ -2730,6 +2918,12 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                         <p className='text-muted-foreground line-clamp-2 text-xs'>
                                             {asset.sourceLabel}
                                         </p>
+                                        {asset.provenanceType === 'ai-generated' ? (
+                                            <p className='text-muted-foreground line-clamp-2 text-xs'>
+                                                {asset.generationModelId} · v{asset.generationRecipeVersion} ·{' '}
+                                                {asset.candidateCount} {t('admin.showcases.media.candidatesUnit')}
+                                            </p>
+                                        ) : null}
                                         <div className='flex gap-2'>
                                             <Button
                                                 size='sm'

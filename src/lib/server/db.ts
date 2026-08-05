@@ -304,6 +304,15 @@ const createTableStatements = [
         "thumbnailStorageKey" TEXT NOT NULL UNIQUE,
         "sourceLabel" TEXT NOT NULL,
         "licenseNote" TEXT NOT NULL,
+        "provenanceType" TEXT NOT NULL DEFAULT 'licensed-source',
+        "generationModelId" TEXT,
+        "generationRecipeVersion" INTEGER,
+        "generatedAt" INTEGER,
+        "candidateCount" INTEGER,
+        "reviewStatus" TEXT NOT NULL DEFAULT 'not-required',
+        "reviewNote" TEXT,
+        "reviewedByUserId" TEXT,
+        "reviewedAt" INTEGER,
         "altZhCN" TEXT NOT NULL,
         "altEnUS" TEXT NOT NULL,
         "createdByUserId" TEXT,
@@ -405,7 +414,16 @@ const migrationStatements = [
     `ALTER TABLE "promo_configs" ADD COLUMN "aspectRatioSource" TEXT;`,
     `ALTER TABLE "promo_configs" ADD COLUMN "constraintsJson" TEXT;`,
     `ALTER TABLE "showcase_topics" ADD COLUMN "startsAt" INTEGER;`,
-    `ALTER TABLE "showcase_topics" ADD COLUMN "endsAt" INTEGER;`
+    `ALTER TABLE "showcase_topics" ADD COLUMN "endsAt" INTEGER;`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "provenanceType" TEXT NOT NULL DEFAULT 'licensed-source';`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "generationModelId" TEXT;`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "generationRecipeVersion" INTEGER;`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "generatedAt" INTEGER;`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "candidateCount" INTEGER;`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "reviewStatus" TEXT NOT NULL DEFAULT 'not-required';`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "reviewNote" TEXT;`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "reviewedByUserId" TEXT;`,
+    `ALTER TABLE "showcase_assets" ADD COLUMN "reviewedAt" INTEGER;`
 ];
 
 let bundle: DatabaseBundle | null = null;

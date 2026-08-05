@@ -305,6 +305,33 @@
 
 本节在发布过程中持续更新。前端与后台专项验收已经完成；完整质量门、commit/tag、Action 资产和 129 生产结果见后续 `v2.15.10` 发布报告。总体状态继续为 **部分完成 (Partial)**，剩余原因是默认真实案例资产、5 名非专业用户研究、多实例集中分析和桌面/Android 安装级证据，而不是本轮 UI 或浏览器专项缺口。
 
+## v2.15.11 媒体生成证据与人工审核增量（2026-08-05）
+
+| 请求目标 | 实际结果 | 主要证据 | 状态 |
+| -------- | -------- | -------- | ---- |
+| 真实案例的内部审计准备 | 托管媒体新增授权/自有源图与 AI 生成结果来源类型；AI 结果结构化记录模型 ID、配方版本、生成时间、候选次数、审核说明、审核人和审核时间 | `src/lib/server/schema.ts`、`src/lib/server/showcase/media.ts`、`src/app/api/admin/showcase-assets/route.ts` | 已完成 (Completed) |
+| 发布可信门 | AI 结果上传必须明确人工批准；发布前复查会拒绝缺少生成证据、审核状态或审核人/时间的记录 | `validateManagedAssetFiles`、媒体测试中的 pending 篡改回归 | 已完成 (Completed) |
+| 旧 SQLite 兼容 | 老版 `showcase_assets` 表自动补齐安全默认值，保留来源、授权和中英文 alt，不伪造历史 AI 审核信息 | `media-provenance-migration.test.ts` | 已完成 (Completed) |
+| 后台体验 | 来源选择后渐进展示 AI 证据字段；浅色/深色、移动/桌面均无横向溢出，未满足字段时上传按钮禁用 | Playwright 临时独立 SQLite：390×844、1440×900、reduced-motion | 已完成 (Completed) |
+
+### 本轮问题与解决
+
+| 问题 | 解决办法 | 剩余风险 |
+| ---- | -------- | -------- |
+| 媒体库原有来源/授权/checksum 不能证明 AI 案例来自哪次生成 | 增加来源类型和生成证据字段；审核批准时记录当前管理员与时间，并在发布健康检查再次校验 | 默认 24 个案例尚未替换为真实 AI 输入/输出，不能据此宣称内容已完成 |
+| 旧数据库没有新字段 | 使用幂等 `ALTER TABLE` 迁移并以 `licensed-source` / `not-required` 作为安全默认值 | 旧记录不会获得虚假的生成/审核历史；需要运营重新上传真实 AI 结果 |
+
+### 本轮验证
+
+| 检查项 | 命令或场景 | 结果 |
+| ------ | ---------- | ---- |
+| 定向媒体测试 | `rtk npm run test -- src/lib/server/showcase/media.test.ts src/lib/server/showcase/media-provenance-migration.test.ts` | 2 个文件、9 项通过 |
+| 全量前端质量门 | `rtk npm test`；`rtk npm run typecheck`；`rtk npm run lint -- --no-cache` | 127 个测试文件、1132 项通过；类型检查和 ESLint 通过 |
+| 后台真实上传 | 临时数据库、AI 来源、模型/配方/时间/候选/审核字段、上传后 SQLite 回读 | `201`；记录包含 `ai-generated`、模型 ID、配方版本、候选次数、`approved`、审核人和审核时间 |
+| 主题/尺寸/动效 | 390×844 浅色；1440×900 深色；reduced-motion | body/dialog 无横向溢出；持续动画 0；Console 0 error / 0 warning |
+
+本增量只完成了“真实内容可以被可信记录和审核”的代码基础，不等同于已经生成 24 个真实案例或完成真人用户研究；总体状态保持 **部分完成 (Partial)**。
+
 ## v2.15.11 深链、缓存与部署可靠性增量（2026-08-04）
 
 | 请求目标 | 实际结果 | 主要证据 | 状态 |

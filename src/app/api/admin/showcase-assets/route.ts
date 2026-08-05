@@ -1,4 +1,5 @@
 import { AdminApiError, adminJsonError, requireAdminApi, toPromoAdminActor } from '@/lib/server/admin-api';
+import { showcaseAssetProvenanceTypes, type ShowcaseAssetProvenanceType } from '@/lib/server/schema';
 import {
     SHOWCASE_MEDIA_MAX_UPLOAD_BYTES,
     createShowcaseManagedAsset,
@@ -12,6 +13,27 @@ function requiredFormText(formData: FormData, key: string): string {
     const value = formData.get(key);
     if (typeof value !== 'string') throw new AdminApiError(`缺少字段：${key}`, 400);
     return value;
+}
+
+function optionalFormText(formData: FormData, key: string): string | undefined {
+    const value = formData.get(key);
+    return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function optionalFormInteger(formData: FormData, key: string): number | undefined {
+    const value = optionalFormText(formData, key);
+    if (value === undefined) return undefined;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed)) throw new AdminApiError(`字段必须是整数：${key}`, 400);
+    return parsed;
+}
+
+function formProvenanceType(formData: FormData): ShowcaseAssetProvenanceType {
+    const value = optionalFormText(formData, 'provenanceType') ?? 'licensed-source';
+    if (!showcaseAssetProvenanceTypes.includes(value as ShowcaseAssetProvenanceType)) {
+        throw new AdminApiError('媒体来源类型不受支持。', 400);
+    }
+    return value as ShowcaseAssetProvenanceType;
 }
 
 export async function GET(request: NextRequest) {
@@ -43,6 +65,13 @@ export async function POST(request: NextRequest) {
                 file,
                 sourceLabel: requiredFormText(formData, 'sourceLabel'),
                 licenseNote: requiredFormText(formData, 'licenseNote'),
+                provenanceType: formProvenanceType(formData),
+                generationModelId: optionalFormText(formData, 'generationModelId'),
+                generationRecipeVersion: optionalFormInteger(formData, 'generationRecipeVersion'),
+                generatedAt: optionalFormInteger(formData, 'generatedAt'),
+                candidateCount: optionalFormInteger(formData, 'candidateCount'),
+                reviewApproved: formData.get('reviewApproved') === 'true',
+                reviewNote: optionalFormText(formData, 'reviewNote'),
                 altZhCN: requiredFormText(formData, 'altZhCN'),
                 altEnUS: requiredFormText(formData, 'altEnUS')
             },

@@ -2,7 +2,13 @@ import type { ShowcaseAdminActor, ShowcaseTopicDraft } from './types';
 import { normalizeShowcaseTopicDraft } from './validation';
 import { getAuditLogMaxRows, pruneAuditLogsToMaxRows } from '@/lib/server/audit';
 import { getServerDatabasePath, getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
-import { showcaseAssets } from '@/lib/server/schema';
+import {
+    showcaseAssetProvenanceTypes,
+    showcaseAssetReviewStatuses,
+    showcaseAssets,
+    type ShowcaseAssetProvenanceType,
+    type ShowcaseAssetReviewStatus
+} from '@/lib/server/schema';
 import { randomToken, sanitizePlainText } from '@/lib/server/security';
 import { getManagedShowcaseAssetId, type ShowcaseRemoteAsset } from '@/lib/showcase';
 import { desc, eq, inArray } from 'drizzle-orm';
@@ -49,6 +55,15 @@ export type ShowcaseManagedAsset = {
     checksum: string;
     sourceLabel: string;
     licenseNote: string;
+    provenanceType: ShowcaseAssetProvenanceType;
+    generationModelId: string | null;
+    generationRecipeVersion: number | null;
+    generatedAt: number | null;
+    candidateCount: number | null;
+    reviewStatus: ShowcaseAssetReviewStatus;
+    reviewNote: string | null;
+    reviewedByUserId: string | null;
+    reviewedAt: number | null;
     alt: { 'zh-CN': string; 'en-US': string };
     createdAt: number;
     catalogAsset: ShowcaseRemoteAsset;
@@ -58,6 +73,13 @@ export type CreateShowcaseManagedAssetInput = {
     file: File;
     sourceLabel: string;
     licenseNote: string;
+    provenanceType?: ShowcaseAssetProvenanceType;
+    generationModelId?: string;
+    generationRecipeVersion?: number;
+    generatedAt?: number;
+    candidateCount?: number;
+    reviewApproved?: boolean;
+    reviewNote?: string;
     altZhCN: string;
     altEnUS: string;
 };
@@ -105,6 +127,29 @@ function normalizeMetadataText(value: string, field: string, maximumLength: numb
     return normalized;
 }
 
+function normalizeBoundedInteger(value: number | undefined, field: string, minimum: number, maximum: number): number {
+    if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+        throw new Error(`${field}必须是 ${minimum} 到 ${maximum} 之间的整数。`);
+    }
+    return value as number;
+}
+
+function normalizeGeneratedAt(value: number | undefined): number {
+    const maximum = Date.now() + 5 * 60_000;
+    if (!Number.isInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
+        throw new Error('生成时间不合法或晚于当前时间。');
+    }
+    return value as number;
+}
+
+function isStoredPositiveInteger(value: number | null, maximum = 10_000): value is number {
+    return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= maximum;
+}
+
+function isStoredDate(value: Date | null): value is Date {
+    return value instanceof Date && Number.isFinite(value.getTime()) && value.getTime() > 0;
+}
+
 function publicMediaUrl(id: string, thumbnail = false): string {
     return `/api/showcase-media/${id}${thumbnail ? '?variant=thumbnail' : ''}`;
 }
@@ -123,6 +168,15 @@ function toManagedAsset(row: ManagedAssetRow): ShowcaseManagedAsset {
         checksum: row.checksum,
         sourceLabel: row.sourceLabel,
         licenseNote: row.licenseNote,
+        provenanceType: row.provenanceType,
+        generationModelId: row.generationModelId,
+        generationRecipeVersion: row.generationRecipeVersion,
+        generatedAt: row.generatedAt?.getTime() ?? null,
+        candidateCount: row.candidateCount,
+        reviewStatus: row.reviewStatus,
+        reviewNote: row.reviewNote,
+        reviewedByUserId: row.reviewedByUserId,
+        reviewedAt: row.reviewedAt?.getTime() ?? null,
         alt,
         createdAt: row.createdAt.getTime(),
         catalogAsset: {
@@ -198,6 +252,25 @@ export function selectReferencedShowcaseTopicDraftAssets(draft: ShowcaseTopicDra
 }
 
 async function validateManagedAssetFiles(row: ManagedAssetRow): Promise<void> {
+    if (!showcaseAssetProvenanceTypes.includes(row.provenanceType)) {
+        throw new Error(`专题引用的托管媒体来源类型不受支持：${row.id}`);
+    }
+    if (!showcaseAssetReviewStatuses.includes(row.reviewStatus)) {
+        throw new Error(`专题引用的托管媒体审核状态不受支持：${row.id}`);
+    }
+    if (
+        row.provenanceType === 'ai-generated' &&
+        (!row.generationModelId?.trim() ||
+            !isStoredPositiveInteger(row.generationRecipeVersion) ||
+            !isStoredDate(row.generatedAt) ||
+            !isStoredPositiveInteger(row.candidateCount) ||
+            row.reviewStatus !== 'approved' ||
+            !row.reviewNote?.trim() ||
+            !row.reviewedByUserId?.trim() ||
+            !isStoredDate(row.reviewedAt))
+    ) {
+        throw new Error(`AI 生成媒体缺少完整生成记录或人工审核：${row.id}`);
+    }
     const displayPath = getShowcaseManagedAssetFilePath(row, false);
     const thumbnailPath = getShowcaseManagedAssetFilePath(row, true);
     let display: Buffer;
@@ -264,6 +337,25 @@ export async function createShowcaseManagedAsset(
     const licenseNote = normalizeMetadataText(input.licenseNote, '授权说明', 1_000);
     const altZhCN = normalizeMetadataText(input.altZhCN, '中文替代文本', 500);
     const altEnUS = normalizeMetadataText(input.altEnUS, '英文替代文本', 500);
+    const provenanceType = input.provenanceType ?? 'licensed-source';
+    if (!showcaseAssetProvenanceTypes.includes(provenanceType)) throw new Error('媒体来源类型不受支持。');
+    const generationModelId =
+        provenanceType === 'ai-generated'
+            ? normalizeMetadataText(input.generationModelId ?? '', '生成模型', 200)
+            : null;
+    const generationRecipeVersion =
+        provenanceType === 'ai-generated'
+            ? normalizeBoundedInteger(input.generationRecipeVersion, '配方版本', 1, 10_000)
+            : null;
+    const generatedAt = provenanceType === 'ai-generated' ? normalizeGeneratedAt(input.generatedAt) : null;
+    const candidateCount =
+        provenanceType === 'ai-generated' ? normalizeBoundedInteger(input.candidateCount, '候选次数', 1, 10_000) : null;
+    if (provenanceType === 'ai-generated' && !input.reviewApproved) {
+        throw new Error('AI 生成媒体必须完成人工审核并明确批准后才能上传。');
+    }
+    const reviewStatus: ShowcaseAssetReviewStatus = provenanceType === 'ai-generated' ? 'approved' : 'not-required';
+    const reviewNote =
+        provenanceType === 'ai-generated' ? normalizeMetadataText(input.reviewNote ?? '', '人工审核说明', 1_000) : null;
     const source = Buffer.from(await input.file.arrayBuffer());
     if (source.byteLength !== input.file.size || source.byteLength > SHOWCASE_MEDIA_MAX_UPLOAD_BYTES) {
         throw new Error('图片文件大小校验失败。');
@@ -327,13 +419,15 @@ export async function createShowcaseManagedAsset(
         await writeAtomic(thumbnailPath, thumbnail.data);
         await getServerDatabaseReady();
         const now = Date.now();
+        const reviewedByUserId = reviewStatus === 'approved' ? actor.userId : null;
+        const reviewedAt = reviewStatus === 'approved' ? now : null;
         const checksum = createHash('sha256').update(display.data).digest('hex');
         getSqliteClient().transaction(() => {
             getSqliteClient()
                 .prepare(
                     `INSERT INTO "showcase_assets"
-                     ("id", "mimeType", "width", "height", "byteSize", "thumbnailWidth", "thumbnailHeight", "thumbnailByteSize", "checksum", "storageKey", "thumbnailStorageKey", "sourceLabel", "licenseNote", "altZhCN", "altEnUS", "createdByUserId", "createdAt")
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+                     ("id", "mimeType", "width", "height", "byteSize", "thumbnailWidth", "thumbnailHeight", "thumbnailByteSize", "checksum", "storageKey", "thumbnailStorageKey", "sourceLabel", "licenseNote", "provenanceType", "generationModelId", "generationRecipeVersion", "generatedAt", "candidateCount", "reviewStatus", "reviewNote", "reviewedByUserId", "reviewedAt", "altZhCN", "altEnUS", "createdByUserId", "createdAt")
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
                 )
                 .run(
                     id,
@@ -349,6 +443,15 @@ export async function createShowcaseManagedAsset(
                     thumbnailStorageKey,
                     sourceLabel,
                     licenseNote,
+                    provenanceType,
+                    generationModelId,
+                    generationRecipeVersion,
+                    generatedAt,
+                    candidateCount,
+                    reviewStatus,
+                    reviewNote,
+                    reviewedByUserId,
+                    reviewedAt,
                     altZhCN,
                     altEnUS,
                     actor.userId,
@@ -359,7 +462,14 @@ export async function createShowcaseManagedAsset(
                 width: display.info.width,
                 height: display.info.height,
                 byteSize: display.data.byteLength,
-                checksum
+                checksum,
+                provenanceType,
+                generationModelId,
+                generationRecipeVersion,
+                generatedAt,
+                candidateCount,
+                reviewStatus,
+                reviewedAt
             });
         })();
         await pruneAssetAuditLogs();

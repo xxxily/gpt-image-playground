@@ -109,6 +109,26 @@ async function uploadAsset() {
     );
 }
 
+async function uploadGeneratedAsset() {
+    return createShowcaseManagedAsset(
+        {
+            file: await jpegFile(),
+            sourceLabel: 'Generated in the project workbench from an approved internal source',
+            licenseNote: 'Project-owned showcase result approved for public display',
+            provenanceType: 'ai-generated',
+            generationModelId: 'gpt-image-2-test-fixture',
+            generationRecipeVersion: 1,
+            generatedAt: Date.UTC(2026, 7, 4, 12, 0, 0),
+            candidateCount: 4,
+            reviewApproved: true,
+            reviewNote: 'Compared with the source fixture; composition and claimed edit were manually verified.',
+            altZhCN: '经人工审核的 AI 生成测试结果',
+            altEnUS: 'Human-reviewed AI-generated test result'
+        },
+        actor()
+    );
+}
+
 beforeAll(async () => {
     fs.rmSync(databasePath, { force: true });
     fs.rmSync(`${databasePath}-wal`, { force: true });
@@ -139,6 +159,17 @@ describe('showcase managed media', () => {
             url: `/api/showcase-media/${asset.id}`,
             thumbnailUrl: `/api/showcase-media/${asset.id}?variant=thumbnail`
         });
+        expect(asset).toMatchObject({
+            provenanceType: 'licensed-source',
+            generationModelId: null,
+            generationRecipeVersion: null,
+            generatedAt: null,
+            candidateCount: null,
+            reviewStatus: 'not-required',
+            reviewNote: null,
+            reviewedByUserId: null,
+            reviewedAt: null
+        });
         expect(row).not.toBeNull();
 
         const displayMetadata = await sharp(getShowcaseManagedAssetFilePath(row!, false)).metadata();
@@ -147,6 +178,44 @@ describe('showcase managed media', () => {
         expect(displayMetadata.exif).toBeUndefined();
         expect(displayMetadata.orientation).toBeUndefined();
         expect(thumbnailMetadata).toMatchObject({ format: 'webp', width: 20, height: 40 });
+    });
+
+    it('records complete generation provenance and the approving reviewer', async () => {
+        const asset = await uploadGeneratedAsset();
+
+        expect(asset).toMatchObject({
+            provenanceType: 'ai-generated',
+            generationModelId: 'gpt-image-2-test-fixture',
+            generationRecipeVersion: 1,
+            generatedAt: Date.UTC(2026, 7, 4, 12, 0, 0),
+            candidateCount: 4,
+            reviewStatus: 'approved',
+            reviewedByUserId: 'showcase-media-admin'
+        });
+        expect(asset.reviewNote).toContain('manually verified');
+        expect(asset.reviewedAt).toEqual(expect.any(Number));
+    });
+
+    it('rejects AI-generated media without explicit human approval', async () => {
+        await expect(
+            createShowcaseManagedAsset(
+                {
+                    file: await jpegFile(),
+                    sourceLabel: 'Generated test fixture',
+                    licenseNote: 'Project-owned test fixture',
+                    provenanceType: 'ai-generated',
+                    generationModelId: 'gpt-image-2-test-fixture',
+                    generationRecipeVersion: 1,
+                    generatedAt: Date.UTC(2026, 7, 4, 12, 0, 0),
+                    candidateCount: 2,
+                    reviewApproved: false,
+                    reviewNote: 'Not approved yet',
+                    altZhCN: '待审核的 AI 生成测试结果',
+                    altEnUS: 'AI-generated fixture pending review'
+                },
+                actor()
+            )
+        ).rejects.toThrow('必须完成人工审核');
     });
 
     it('rejects declared MIME and decoded format mismatches', async () => {
@@ -239,5 +308,20 @@ describe('showcase managed media', () => {
         await expect(publishShowcaseTopicAdmin(corruptedDraft.topic.id, actor())).rejects.toThrow(
             /大小|checksum|解码/u
         );
+    });
+
+    it('blocks publication when AI generation provenance is no longer approved', async () => {
+        const generatedAsset = await uploadGeneratedAsset();
+        const draft = withDraftIdentity(draftWithCover(generatedAsset), 'unreviewed-generated');
+        await createShowcaseTopicAdmin({ draft }, actor());
+        getSqliteClient()
+            .prepare(
+                `UPDATE "showcase_assets"
+                 SET "reviewStatus" = 'pending', "reviewedByUserId" = NULL, "reviewedAt" = NULL
+                 WHERE "id" = ?;`
+            )
+            .run(generatedAsset.id);
+
+        await expect(publishShowcaseTopicAdmin(draft.topic.id, actor())).rejects.toThrow('缺少完整生成记录或人工审核');
     });
 });

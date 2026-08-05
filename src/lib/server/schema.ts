@@ -58,6 +58,12 @@ export type ShowcaseTopicStatus = (typeof showcaseTopicStatuses)[number];
 export const showcaseAssetMimeTypes = ['image/webp'] as const;
 export type ShowcaseAssetMimeType = (typeof showcaseAssetMimeTypes)[number];
 
+export const showcaseAssetProvenanceTypes = ['licensed-source', 'ai-generated'] as const;
+export type ShowcaseAssetProvenanceType = (typeof showcaseAssetProvenanceTypes)[number];
+
+export const showcaseAssetReviewStatuses = ['not-required', 'pending', 'approved'] as const;
+export type ShowcaseAssetReviewStatus = (typeof showcaseAssetReviewStatuses)[number];
+
 export const showcaseEventNames = [
     'showcase_impression',
     'showcase_open',
@@ -454,6 +460,18 @@ export const showcaseAssets = sqliteTable(
         thumbnailStorageKey: text('thumbnailStorageKey').notNull().unique(),
         sourceLabel: text('sourceLabel').notNull(),
         licenseNote: text('licenseNote').notNull(),
+        provenanceType: text('provenanceType')
+            .notNull()
+            .default('licensed-source')
+            .$type<ShowcaseAssetProvenanceType>(),
+        generationModelId: text('generationModelId'),
+        generationRecipeVersion: integer('generationRecipeVersion'),
+        generatedAt: integer('generatedAt', { mode: 'timestamp_ms' }),
+        candidateCount: integer('candidateCount'),
+        reviewStatus: text('reviewStatus').notNull().default('not-required').$type<ShowcaseAssetReviewStatus>(),
+        reviewNote: text('reviewNote'),
+        reviewedByUserId: text('reviewedByUserId'),
+        reviewedAt: integer('reviewedAt', { mode: 'timestamp_ms' }),
         altZhCN: text('altZhCN').notNull(),
         altEnUS: text('altEnUS').notNull(),
         createdByUserId: text('createdByUserId').references(() => authUsers.id, { onDelete: 'set null' }),
