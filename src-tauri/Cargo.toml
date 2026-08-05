@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.15.10"
+version = "2.15.11"
 description = "GPT Image Playground desktop app"
 authors = ["Blaze"]
 license = "MIT"
