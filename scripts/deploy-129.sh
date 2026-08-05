@@ -1154,10 +1154,12 @@ dotenv_has_nonempty_value() {
     local file="\$1"
     local key="\$2"
 
+    # Debian 10 ships an old mawk that does not reliably handle POSIX
+    # character classes inside a negated bracket expression.
     awk -v expected_key="\$key" '
         function trim(value) {
-            sub(/^[[:space:]]+/, "", value)
-            sub(/[[:space:]]+$/, "", value)
+            sub(/^[ \t\r]+/, "", value)
+            sub(/[ \t\r]+$/, "", value)
             return value
         }
         {
@@ -1171,7 +1173,7 @@ dotenv_has_nonempty_value() {
             if (length(value) >= 2 && ((first == "\"" && last == "\"") || (first == "\047" && last == "\047"))) {
                 value = trim(substr(value, 2, length(value) - 2))
             }
-            if (value ~ /[^[:space:]]/) found = 1
+            if (value ~ /[^ \t\r]/) found = 1
             exit
         }
         END { exit found ? 0 : 1 }
