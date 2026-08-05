@@ -18,7 +18,8 @@ import type {
     ShowcaseRecipeV1
 } from './showcase-recipe';
 
-const GENERATED_AT = Date.UTC(2026, 7, 3, 0, 0, 0);
+const GENERATED_AT = Date.UTC(2026, 7, 5, 0, 0, 0);
+const BUILTIN_MEDIA_ROOT = '/showcases/builtin';
 
 type DefaultCaseSpec = {
     slug: string;
@@ -45,54 +46,21 @@ type DefaultTopicSpec = {
     cases: DefaultCaseSpec[];
 };
 
-type PlaceholderPalette = {
-    inputBackground: string;
-    inputForeground: string;
-    outputBackground: string;
-    outputForeground: string;
-};
-
-const PLACEHOLDER_PALETTES: PlaceholderPalette[] = [
-    {
-        inputBackground: '#E8EDF2',
-        inputForeground: '#334155',
-        outputBackground: '#DCECE2',
-        outputForeground: '#1F5132'
-    },
-    {
-        inputBackground: '#F3E7EC',
-        inputForeground: '#6B3149',
-        outputBackground: '#E4EBF5',
-        outputForeground: '#294A73'
-    },
-    {
-        inputBackground: '#F2E9D8',
-        inputForeground: '#624B22',
-        outputBackground: '#E4E1F0',
-        outputForeground: '#443A69'
-    },
-    {
-        inputBackground: '#E6EEF0',
-        inputForeground: '#244C52',
-        outputBackground: '#F3E5D8',
-        outputForeground: '#6A3D22'
-    },
-    {
-        inputBackground: '#ECECEC',
-        inputForeground: '#3F3F46',
-        outputBackground: '#DDEBED',
-        outputForeground: '#24505A'
-    },
-    {
-        inputBackground: '#E9E4E1',
-        inputForeground: '#55433C',
-        outputBackground: '#E2E9E3',
-        outputForeground: '#2C4E35'
-    }
-];
-
 function text(zhCN: string, enUS: string): ShowcaseLocalizedText {
     return { 'zh-CN': zhCN, 'en-US': enUS };
+}
+
+function builtinImageAsset(id: string, alt: ShowcaseLocalizedText, width = 768, height = 768): ShowcaseAsset {
+    return {
+        id,
+        kind: 'remote-image',
+        alt,
+        url: `${BUILTIN_MEDIA_ROOT}/${id}.webp`,
+        thumbnailUrl: `${BUILTIN_MEDIA_ROOT}/${id}-thumb.webp`,
+        mimeType: 'image/webp',
+        width,
+        height
+    };
 }
 
 function imageSlot(
@@ -203,42 +171,30 @@ function makeCase(
     assets: ShowcaseAsset[]
 ): ShowcaseExecutableCase {
     const id = `${topic.id}-${caseSpec.slug}`;
-    const palette = PLACEHOLDER_PALETTES[topicIndex % PLACEHOLDER_PALETTES.length];
-    const inputAssetIds = caseSpec.slots.map((slot, slotIndex) => {
+    const inputAssetIds = caseSpec.slots.map((slot) => {
         const assetId = `${id}-input-${slot.id}`;
-        assets.push({
-            id: assetId,
-            kind: 'placeholder',
-            alt: text(
-                `${caseSpec.title['zh-CN']}的${slot.label['zh-CN']}示例占位预览，非真实生成素材。`,
-                `Sample placeholder preview for the ${slot.label['en-US']} used by ${caseSpec.title['en-US']}; not an actual generated asset.`
-            ),
-            placeholder: {
-                label: text(
-                    `${slot.label['zh-CN']}示例占位 ${slotIndex + 1}`,
-                    `${slot.label['en-US']} sample placeholder ${slotIndex + 1}`
-                ),
-                backgroundColor: palette.inputBackground,
-                foregroundColor: palette.inputForeground
-            }
-        });
+        assets.push(
+            builtinImageAsset(
+                assetId,
+                text(
+                    `${caseSpec.title['zh-CN']}案例使用的${slot.label['zh-CN']}示例图。`,
+                    `Example ${slot.label['en-US']} image used by the ${caseSpec.title['en-US']} case.`
+                )
+            )
+        );
         return assetId;
     });
 
     const outputAssetId = `${id}-output`;
-    assets.push({
-        id: outputAssetId,
-        kind: 'placeholder',
-        alt: text(
-            `${caseSpec.title['zh-CN']}的期望输出示例占位预览，非真实 AI 生成素材。`,
-            `Sample placeholder preview for the expected ${caseSpec.title['en-US']} output; not an actual AI-generated asset.`
-        ),
-        placeholder: {
-            label: text('期望输出示例占位', 'Expected output sample placeholder'),
-            backgroundColor: palette.outputBackground,
-            foregroundColor: palette.outputForeground
-        }
-    });
+    assets.push(
+        builtinImageAsset(
+            outputAssetId,
+            text(
+                `${caseSpec.title['zh-CN']}案例的示例结果图。`,
+                `Illustrative result image for the ${caseSpec.title['en-US']} case.`
+            )
+        )
+    );
 
     const recipe: ShowcaseRecipeV1 = {
         version: SHOWCASE_RECIPE_VERSION,
@@ -275,8 +231,8 @@ function makeCase(
             `A reviewable image-edit recipe for ${caseSpec.objective['en-US']}`
         ),
         resultExplanation: text(
-            `示例占位输出用于说明预期方向：${caseSpec.objective['zh-CN']}实际结果会随输入图片和模型能力变化。`,
-            `The sample placeholder illustrates the intended direction: ${caseSpec.objective['en-US']} Actual results vary with the source images and model capabilities.`
+            `示例图用于说明预期方向：${caseSpec.objective['zh-CN']}实际结果会随输入图片、模型能力和随机性变化。`,
+            `The sample illustrates the intended direction: ${caseSpec.objective['en-US']} Actual results vary with source images, model capabilities, and randomness.`
         ),
         inputGuidance: text(
             caseSpec.slots.map((slot) => slot.description['zh-CN']).join(' '),
@@ -758,6 +714,18 @@ function buildDefaultShowcaseCatalog(): ShowcaseExecutableCatalog {
             cases.push(showcaseCase);
             return showcaseCase;
         });
+        const coverAssetId = `${topicSpec.id}-cover`;
+        assets.push(
+            builtinImageAsset(
+                coverAssetId,
+                text(
+                    `${topicSpec.title['zh-CN']}专题封面，展示多个代表性案例方向。`,
+                    `${topicSpec.title['en-US']} topic cover featuring representative case directions.`
+                ),
+                1200,
+                675
+            )
+        );
 
         return {
             id: topicSpec.id,
@@ -807,18 +775,18 @@ function buildDefaultShowcaseCatalog(): ShowcaseExecutableCatalog {
             publishedAt: GENERATED_AT + topicIndex,
             featured: true,
             sortOrder: (topicIndex + 1) * 100,
-            coverAssetId: topicCases[0].coverAssetId,
+            coverAssetId,
             caseIds: topicCases.map((showcaseCase) => showcaseCase.id)
         };
     });
 
     return {
         schemaVersion: SHOWCASE_CATALOG_SCHEMA_VERSION,
-        catalogRevision: 'builtin-2026-08-03-v1',
+        catalogRevision: 'builtin-2026-08-05-v2',
         generatedAt: GENERATED_AT,
         contentNotice: text(
-            '内置媒体仅为示例占位预览，用于说明输入与期望输出位置，不代表真实 AI 生成素材。',
-            'Built-in media are sample placeholder previews that illustrate input and expected-output positions; they are not actual AI-generated assets.'
+            '内置媒体是用于首期展示的 AI 生成示意素材，用来说明输入与结果方向，不构成效果、身份或事实准确性的保证。',
+            'Built-in media are AI-generated illustrative launch assets showing input and result directions; they do not guarantee outcome, identity, or factual accuracy.'
         ),
         topics,
         cases,

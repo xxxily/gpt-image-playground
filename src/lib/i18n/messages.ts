@@ -51,6 +51,12 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'admin.showcases.editor.editTitle': '编辑专题草稿',
         'admin.showcases.editor.description':
             '日常内容优先使用结构化表单；高级 JSON 可用于完整导入导出和精细调整，保存不会影响当前线上版本。',
+        'admin.showcases.editor.basicsTitle': '基础标识与展示设置',
+        'admin.showcases.editor.basicsDescription': '设置专题 ID、公开 Slug、排序和首页推荐状态。',
+        'admin.showcases.editor.contentTitle': '双语专题内容',
+        'admin.showcases.editor.contentDescription': '集中维护中文和英文的标题、说明、适用范围与输入建议。',
+        'admin.showcases.editor.operationsTitle': '运营信息与内容关联',
+        'admin.showcases.editor.operationsDescription': '维护标签、任务分类、常见问题和相关专题。',
         'admin.showcases.editor.structured': '结构化编辑',
         'admin.showcases.editor.advanced': '高级 JSON',
         'admin.showcases.editor.jsonTitle': '专题、案例与媒体 JSON',
@@ -834,6 +840,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'showcase.section.title': '实用专题',
         'showcase.section.description': '先看清输入和效果，再带着可编辑的默认提示词进入工作台。',
         'showcase.section.viewAll': '查看全部专题',
+        'showcase.section.expand': '展开专题',
+        'showcase.section.collapse': '收起专题',
         'showcase.section.empty': '当前暂无可用专题。',
         'showcase.page.eyebrow': '能力案例目录',
         'showcase.page.title': '专题与引导式创作',
@@ -2973,6 +2981,14 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'admin.showcases.editor.editTitle': 'Edit showcase draft',
         'admin.showcases.editor.description':
             'Use the structured form for routine content. Advanced JSON supports full import/export and detailed edits; saving never changes the live version.',
+        'admin.showcases.editor.basicsTitle': 'Identity and display settings',
+        'admin.showcases.editor.basicsDescription':
+            'Set the topic ID, public slug, ordering, and home-page feature state.',
+        'admin.showcases.editor.contentTitle': 'Bilingual topic content',
+        'admin.showcases.editor.contentDescription':
+            'Maintain Chinese and English titles, guidance, suitability, and input recommendations together.',
+        'admin.showcases.editor.operationsTitle': 'Operations and content relationships',
+        'admin.showcases.editor.operationsDescription': 'Maintain tags, task categories, FAQs, and related topics.',
         'admin.showcases.editor.structured': 'Structured editor',
         'admin.showcases.editor.advanced': 'Advanced JSON',
         'admin.showcases.editor.jsonTitle': 'Topic, cases, and assets JSON',
@@ -3836,6 +3852,8 @@ export const APP_MESSAGES: Record<AppLanguage, I18nMessages> = {
         'showcase.section.description':
             'Review the inputs and intended result, then open an editable default prompt in the workbench.',
         'showcase.section.viewAll': 'View all topics',
+        'showcase.section.expand': 'Expand topics',
+        'showcase.section.collapse': 'Collapse topics',
         'showcase.section.empty': 'No showcase topics are currently available.',
         'showcase.page.eyebrow': 'Capability case catalog',
         'showcase.page.title': 'Topics and guided creation',

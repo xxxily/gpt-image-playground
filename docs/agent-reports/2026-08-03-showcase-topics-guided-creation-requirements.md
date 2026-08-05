@@ -1,28 +1,28 @@
 # 专题案例与引导式创作能力实现与发布报告
 
-| 字段     | 内容                                                                                                                                                                                                                  |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 日期     | 2026-08-03（持续迭代至 2026-08-05，`v2.15.11` 已发布并部署）                                                                                                                                                              |
-| 状态     | 部分完成 (Partial)：核心专题发现、引导式创作、托管/外部媒体发布安全、完整结构化后台、跨端目录和匿名漏斗主体已可用；24 个真实 AI 案例资产、5 名非专业用户测试、漏斗集中存储和真机安装验收仍缺证据。 |
-| 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                 |
-| 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)         |
-| 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                   |
-| 提交状态 | `v2.15.11` 功能提交 `95e3932`、发布提交 `d2c4af7`、annotated tag `v2.15.11` 和发布后部署热修 `4dbb527` 均已推送；Actions、15 个资产与 129 部署已完成。工作区内用户既有的任务服务、社区调研、PSD 研究和索引改动继续显式排除。 |
+| 字段     | 内容                                                                                                                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 日期     | 2026-08-03（持续迭代至 2026-08-05，`v2.15.12` 增量进行中）                                                                                                                                                                                |
+| 状态     | 部分完成 (Partial)：核心专题发现、引导式创作、首版 AI 示意媒体、托管/外部媒体发布安全、完整结构化后台、跨端目录和匿名漏斗主体已可用；按真实工作台配方运行并审计的 24 个生产样本、5 名非专业用户测试、漏斗集中存储和真机安装验收仍缺证据。 |
+| 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                                     |
+| 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)                             |
+| 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                                       |
+| 提交状态 | `v2.15.11` 功能提交 `95e3932`、发布提交 `d2c4af7`、annotated tag `v2.15.11` 和发布后部署热修 `4dbb527` 均已推送；Actions、15 个资产与 129 部署已完成。工作区内用户既有的任务服务、社区调研、PSD 研究和索引改动继续显式排除。              |
 
 ## 范围核对
 
-| 请求目标             | 实际结果                                                                                                                                                                   | 证据                                                                                                | 状态                                                                                         |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 专业、全面地细化需求 | 完成产品定位、术语、前后台流程、数据、接口、安全、跨端、验收和阶段规划                                                                                                     | 需求文档                                                                                            | 已完成 (Completed)                                                                           |
-| 默认实用专题         | 内置 6 个双语专题、24 个案例，覆盖老照片修复、虚拟试衣、创意风格化等；媒体为明确标识的 CSS 演示占位                                                                        | `src/lib/default-showcases.ts`、需求第 24 章                                                        | 部分完成 (Partial)：尚未补齐真实 AI 输入/输出案例与内部生成审计                              |
-| 首页和专题中心       | 工作台下方专题区、全局功能菜单、静态 `/topics` 页面壳、专题/案例详情和深链                                                                                                 | `src/components/showcase/*`、`src/app/topics/page.tsx`                                              | 已完成 (Completed)                                                                           |
-| 跟着案例复现         | 按角色支持本地文件、粘贴、系统剪贴板、素材库和历史图片；源图替换/追加、提示词 replace/append/keep、可编辑/复制提示词、模型能力检查、场景尺寸解析和安全参数载入；不自动生成 | `showcase-guide-dialog.tsx`、`workbench-page.tsx`                                                   | 已完成 (Completed)                                                                           |
-| 来源归因             | 显示可返回/可单独清除的来源 Chip；普通任务、托管任务恢复和历史均可保留 `topicId/caseId/recipeVersion/catalogRevision`                                                      | `showcase-attribution-chip.tsx`、`useTaskManager.ts`、`managed-task-records.ts`、`image-history.ts` | 已完成 (Completed)                                                                           |
-| 公开目录与跨端回退   | Web 同源 API；Tauri 可信远端；远端 → endpoint 缓存 → 内置目录；ETag/304                                                                                                    | `showcase-client.ts`、`desktop-config.ts`、公开 API                                                 | 已完成 (Completed)                                                                           |
-| 后台管理             | `/admin/showcases` 支持列表筛选、FAQ、相关专题、用户补充要求、输入数量/MIME、背景/审核等完整运营字段、媒体上传与指派、匿名漏斗汇总、复制、预览、发布、下线、归档、版本回滚，并保留高级 JSON；viewer 只读 | 后台 UI/API、SQLite schema、字段 round-trip 测试与浏览器保存刷新 | 已完成 (Completed) |
-| 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换                                                                                                      | `src/lib/server/showcase/*`                                                                         | 已完成 (Completed)                                                                           |
-| i18n、主题与响应式   | 新增固定文案已进入中英文资源；1440/1280 桌面与 390×844 移动、浅色/深色、键盘、触摸、reduced-motion 和提示词复制状态均已复验                                         | `messages.ts`、Playwright 截图与交互记录                                                                       | 已完成 (Completed)                                                                           |
-| 发布新版本和构建产物 | `v2.15.11` 已推送；Run `30966310596` 的 7 个 jobs 全部成功，正式 Release 15 个资产齐全，129 已切换并完成 HTTP、ETag、SQLite、认证边界与回滚验收 | [v2.15.11 发布报告](./2026-08-04-release-2.15.11.md) | 已完成 (Completed) |
+| 请求目标             | 实际结果                                                                                                                                                                                                 | 证据                                                                                                | 状态                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 专业、全面地细化需求 | 完成产品定位、术语、前后台流程、数据、接口、安全、跨端、验收和阶段规划                                                                                                                                   | 需求文档                                                                                            | 已完成 (Completed)                                                                     |
+| 默认实用专题         | 内置 6 个双语专题、24 个案例，覆盖老照片修复、虚拟试衣、创意风格化等；已接入 62 张主图和对应缩略图，明确标识为可替换的 AI 生成示意素材                                                                   | `src/lib/default-showcases.ts`、`public/showcases/builtin/*`、需求第 24/32 章                       | 部分完成 (Partial)：首版视觉素材已完成，真实 recipe 运行与托管媒体生成审计样本仍待补齐 |
+| 首页和专题中心       | 工作台下方专题区、全局功能菜单、静态 `/topics` 页面壳、专题/案例详情和深链                                                                                                                               | `src/components/showcase/*`、`src/app/topics/page.tsx`                                              | 已完成 (Completed)                                                                     |
+| 跟着案例复现         | 按角色支持本地文件、粘贴、系统剪贴板、素材库和历史图片；源图替换/追加、提示词 replace/append/keep、可编辑/复制提示词、模型能力检查、场景尺寸解析和安全参数载入；不自动生成                               | `showcase-guide-dialog.tsx`、`workbench-page.tsx`                                                   | 已完成 (Completed)                                                                     |
+| 来源归因             | 显示可返回/可单独清除的来源 Chip；普通任务、托管任务恢复和历史均可保留 `topicId/caseId/recipeVersion/catalogRevision`                                                                                    | `showcase-attribution-chip.tsx`、`useTaskManager.ts`、`managed-task-records.ts`、`image-history.ts` | 已完成 (Completed)                                                                     |
+| 公开目录与跨端回退   | Web 同源 API；Tauri 可信远端；远端 → endpoint 缓存 → 内置目录；ETag/304                                                                                                                                  | `showcase-client.ts`、`desktop-config.ts`、公开 API                                                 | 已完成 (Completed)                                                                     |
+| 后台管理             | `/admin/showcases` 支持列表筛选、FAQ、相关专题、用户补充要求、输入数量/MIME、背景/审核等完整运营字段、媒体上传与指派、匿名漏斗汇总、复制、预览、发布、下线、归档、版本回滚，并保留高级 JSON；viewer 只读 | 后台 UI/API、SQLite schema、字段 round-trip 测试与浏览器保存刷新                                    | 已完成 (Completed)                                                                     |
+| 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换                                                                                                                                    | `src/lib/server/showcase/*`                                                                         | 已完成 (Completed)                                                                     |
+| i18n、主题与响应式   | 新增固定文案已进入中英文资源；1440/1280 桌面与 390×844 移动、浅色/深色、键盘、触摸、reduced-motion 和提示词复制状态均已复验                                                                              | `messages.ts`、Playwright 截图与交互记录                                                            | 已完成 (Completed)                                                                     |
+| 发布新版本和构建产物 | `v2.15.11` 已推送；Run `30966310596` 的 7 个 jobs 全部成功，正式 Release 15 个资产齐全，129 已切换并完成 HTTP、ETag、SQLite、认证边界与回滚验收                                                          | [v2.15.11 发布报告](./2026-08-04-release-2.15.11.md)                                                | 已完成 (Completed)                                                                     |
 
 ## 实际完成范围
 
@@ -59,18 +59,18 @@
 
 ## 问题与解决
 
-| 问题                                                                              | 解决办法                                                                                                                             | 剩余风险                                                                                                                                                    |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Promo 和专题都有“展示内容”特征                                                    | Promo 继续负责投放入口，showcase 独立负责专题、案例和执行配方                                                                        | 后续可增加 Promo 引用专题的结构化选择器                                                                                                                     |
-| 桌面静态导出不能依赖动态 SSR slug                                                 | 使用静态 `/topics` 壳和 query 深链，目录从可信远端读取并带缓存/内置回退                                                              | Web SEO 动态落地页仍是后续增强                                                                                                                              |
-| 配方可能注入危险配置                                                              | 客户端和服务端复用同一严格 schema，只允许工作台安全字段                                                                              | 新字段必须先升级 schema 和兼容策略                                                                                                                          |
-| 当前工作台已有 prompt/图片                                                        | prompt 提供替换、追加、保留选择；源图提供替换、追加、取消后返回调整                                                                  | 追加后仍受当前模型参考图数量和文件限制校验                                                                                                                  |
-| 后台字段很多且存在互斥尺寸、用户占位符和 MIME 组合约束 | 增加完整结构化专题/案例表单并保留高级 JSON；纯 helper 保证字段创建/修改/清空，尺寸互斥、用户占位符同步 prompt，`image/*` 与具体 MIME 按互斥规则切换 | 后续新增 recipe/schema 字段仍需同步维护结构化编辑器 |
-| 个性化要求 effect 会覆盖用户手改 prompt                                           | 改为比较“上一次系统生成 prompt”，只有用户尚未改写时才同步下一次个性化要求                                                            | 已增加纯函数与浏览器回归验证                                                                                                                                |
-| 多协作者外部模型通道返回 503                                                      | 保留已完成协作者结果，其余工作由主代理继续实现和验证                                                                                 | 不影响代码运行，但少了一轮独立 UI/需求审阅                                                                                                                  |
-| RustSec 发现 `quick-xml 0.39.2` 两项高危告警和 `quinn-proto 0.11.14` 一项高危告警 | 在现有 `0.11.x` 约束内把 `quinn-proto` 升至 `0.11.15`；核对 `quick-xml` 依赖树与修复版本要求                                         | `quick-xml >=0.41.0` 需要同时跨越 Tauri 间接依赖约束，且 `plist 1.10.0` 的 MSRV 为 Rust 1.88，高于项目声明的 1.77.2；本补丁不做未经全平台验证的强制跨代覆盖 |
-| 首次 Release Action 因后台预览提示残留硬编码中文失败                              | 将文案迁移到中英文 i18n 资源，提交 `301dbc2`，重建 `v2.15.5` tag 并重新触发正式 Release workflow                                     | 后续继续依靠 CI 的可见文案检查阻止同类回归                                                                                                                  |
-| 161 的 Debian 10 构建容器访问归档源和 Node headers 出现间歇性网络失败             | 归档源恢复后重试；最终在 detached 部署 worktree 中让 `node-gyp` 使用 Node 二进制缓存自带的 `include/node`，不再二次访问 `nodejs.org` | 此构建辅助修正未进入本次已发布 tag；建议在后续版本正式合入并为 apt 下载增加重试                                                                             |
+| 问题                                                                              | 解决办法                                                                                                                                            | 剩余风险                                                                                                                                                    |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Promo 和专题都有“展示内容”特征                                                    | Promo 继续负责投放入口，showcase 独立负责专题、案例和执行配方                                                                                       | 后续可增加 Promo 引用专题的结构化选择器                                                                                                                     |
+| 桌面静态导出不能依赖动态 SSR slug                                                 | 使用静态 `/topics` 壳和 query 深链，目录从可信远端读取并带缓存/内置回退                                                                             | Web SEO 动态落地页仍是后续增强                                                                                                                              |
+| 配方可能注入危险配置                                                              | 客户端和服务端复用同一严格 schema，只允许工作台安全字段                                                                                             | 新字段必须先升级 schema 和兼容策略                                                                                                                          |
+| 当前工作台已有 prompt/图片                                                        | prompt 提供替换、追加、保留选择；源图提供替换、追加、取消后返回调整                                                                                 | 追加后仍受当前模型参考图数量和文件限制校验                                                                                                                  |
+| 后台字段很多且存在互斥尺寸、用户占位符和 MIME 组合约束                            | 增加完整结构化专题/案例表单并保留高级 JSON；纯 helper 保证字段创建/修改/清空，尺寸互斥、用户占位符同步 prompt，`image/*` 与具体 MIME 按互斥规则切换 | 后续新增 recipe/schema 字段仍需同步维护结构化编辑器                                                                                                         |
+| 个性化要求 effect 会覆盖用户手改 prompt                                           | 改为比较“上一次系统生成 prompt”，只有用户尚未改写时才同步下一次个性化要求                                                                           | 已增加纯函数与浏览器回归验证                                                                                                                                |
+| 多协作者外部模型通道返回 503                                                      | 保留已完成协作者结果，其余工作由主代理继续实现和验证                                                                                                | 不影响代码运行，但少了一轮独立 UI/需求审阅                                                                                                                  |
+| RustSec 发现 `quick-xml 0.39.2` 两项高危告警和 `quinn-proto 0.11.14` 一项高危告警 | 在现有 `0.11.x` 约束内把 `quinn-proto` 升至 `0.11.15`；核对 `quick-xml` 依赖树与修复版本要求                                                        | `quick-xml >=0.41.0` 需要同时跨越 Tauri 间接依赖约束，且 `plist 1.10.0` 的 MSRV 为 Rust 1.88，高于项目声明的 1.77.2；本补丁不做未经全平台验证的强制跨代覆盖 |
+| 首次 Release Action 因后台预览提示残留硬编码中文失败                              | 将文案迁移到中英文 i18n 资源，提交 `301dbc2`，重建 `v2.15.5` tag 并重新触发正式 Release workflow                                                    | 后续继续依靠 CI 的可见文案检查阻止同类回归                                                                                                                  |
+| 161 的 Debian 10 构建容器访问归档源和 Node headers 出现间歇性网络失败             | 归档源恢复后重试；最终在 detached 部署 worktree 中让 `node-gyp` 使用 Node 二进制缓存自带的 `include/node`，不再二次访问 `nodejs.org`                | 此构建辅助修正未进入本次已发布 tag；建议在后续版本正式合入并为 apt 下载增加重试                                                                             |
 
 ## 验证
 
@@ -86,7 +86,7 @@
 | 前台浏览器          | 1440 桌面、390×844 移动端；浅色/深色；无横向溢出；案例工作台 href 正确                                                                                                                                                                                            | 通过；浏览器和 dev server 已关闭                                                                                                                                                                                                     |
 | 后台浏览器          | 独立临时 SQLite + 测试 owner；1440×900 浅色、1280×800 深色、390×844 浅色/深色；创建、预览、发布、公开读取、下线、回滚                                                                                                                                             | 通过；移动端 `scrollWidth === clientWidth === 390`，控制台 0 error / 0 warning；浏览器、dev server 和临时数据已清理                                                                                                                  |
 | 本轮前台增量验证    | 1280×800 深色专题目录/案例、390×844 深色双图试衣全屏引导；手改 prompt 保护、素材库子 Dialog、双图角色顺序、载入后无生成请求                                                                                                                                       | 通过；`scrollWidth === clientWidth`，console 0 error / 0 warning；浏览器与 dev server 已关闭                                                                                                                                         |
-| 本轮后台增量验证    | 独立临时 SQLite 与临时 owner；双语任务分类保存/刷新、30 天匿名 NDJSON 导出和审计回读；390×844 窄屏                                                                                                                          | 分类 round-trip 保留两条中英文值，导出 200 并生成下载，审计出现 `showcase_analytics_export`；无横向溢出，临时服务和 SQLite 已清理                                                                                                  |
+| 本轮后台增量验证    | 独立临时 SQLite 与临时 owner；双语任务分类保存/刷新、30 天匿名 NDJSON 导出和审计回读；390×844 窄屏                                                                                                                                                                | 分类 round-trip 保留两条中英文值，导出 200 并生成下载，审计出现 `showcase_analytics_export`；无横向溢出，临时服务和 SQLite 已清理                                                                                                    |
 | 安全依赖审计        | `rtk npm run audit:prod`                                                                                                                                                                                                                                          | 初次发现 4 个 high；升级兼容 patch 后复验为 0 vulnerabilities                                                                                                                                                                        |
 | 发布前安全与环境    | `rtk npm run secret-scan`、`rtk npm run release:env-check`                                                                                                                                                                                                        | 通过；私有 `.env.local` 未被 Git 跟踪，跟踪文件未发现疑似密钥                                                                                                                                                                        |
 | 全量单元测试        | `rtk npm run test`                                                                                                                                                                                                                                                | 116 个测试文件、1074 项测试全部通过                                                                                                                                                                                                  |
@@ -96,118 +96,118 @@
 | 版本一致性          | Node 版本检查脚本、`rtk cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1`                                                                                                                                                          | `package.json`、package-lock 根版本、Tauri、Cargo 均为 `2.15.6`，锁文件可解析                                                                                                                                                        |
 | 可用性测试          | 5 名非专业用户，30/60 秒目标                                                                                                                                                                                                                                      | 未执行，无可虚报的受试者证据                                                                                                                                                                                                         |
 | Tauri 真机/Android  | 真实桌面运行时和 Android 真机                                                                                                                                                                                                                                     | 未执行；CI 产物不能替代安装级验证                                                                                                                                                                                                    |
-| GitHub Actions      | `rtk gh run view 30857545674`                                                                                                                                                                                                                                    | Run `completed/success`；Validate/Web、macOS、Windows、Linux、Android、Publish Release jobs 全部成功；URL：<https://github.com/xxxily/gpt-image-playground/actions/runs/30857545674> |
-| Release 资产        | `rtk gh release view v2.15.6`                                                                                                                                                                                                                                    | 正式 Release（非 draft、非 prerelease），15 个资产齐全：DMG/updater、EXE/MSI、deb/rpm/AppImage、签名、`latest.json` 与 universal release APK                       |
-| 129 生产部署        | `rtk ./scripts/deploy-129.sh --backend 161`                                                                                                                                                                                                                      | 161 Docker 生成约 47 MB、glibc 2.28 兼容运行包；129 `current` 指向 `releases/20260804062651-v2.15.6`，systemd `active`；旧版本保留为回滚点                   |
-| 129 线上路由        | `curl` 检查 `/`、`/topics`、`/admin/showcases`、专题 API 与缓存头                                                                                                                                                                                                | `/`、`/topics` 为 200；后台入口 307 → `/admin/login`；专题 API 为 200，ETag 条件请求 304，根页和 API 缓存策略符合预期                                   |
-| 129 专题 API 与缓存 | `curl -I /api/showcases`、`curl /api/showcases/old-photo-restoration`                                                                                                                                                                                             | API 为 200，返回 ETag 和 `public, max-age=60, stale-while-revalidate=300`；专题详情可读取；条件请求返回 304                                                                                                                        |
+| GitHub Actions      | `rtk gh run view 30857545674`                                                                                                                                                                                                                                     | Run `completed/success`；Validate/Web、macOS、Windows、Linux、Android、Publish Release jobs 全部成功；URL：<https://github.com/xxxily/gpt-image-playground/actions/runs/30857545674>                                                 |
+| Release 资产        | `rtk gh release view v2.15.6`                                                                                                                                                                                                                                     | 正式 Release（非 draft、非 prerelease），15 个资产齐全：DMG/updater、EXE/MSI、deb/rpm/AppImage、签名、`latest.json` 与 universal release APK                                                                                         |
+| 129 生产部署        | `rtk ./scripts/deploy-129.sh --backend 161`                                                                                                                                                                                                                       | 161 Docker 生成约 47 MB、glibc 2.28 兼容运行包；129 `current` 指向 `releases/20260804062651-v2.15.6`，systemd `active`；旧版本保留为回滚点                                                                                           |
+| 129 线上路由        | `curl` 检查 `/`、`/topics`、`/admin/showcases`、专题 API 与缓存头                                                                                                                                                                                                 | `/`、`/topics` 为 200；后台入口 307 → `/admin/login`；专题 API 为 200，ETag 条件请求 304，根页和 API 缓存策略符合预期                                                                                                                |
+| 129 专题 API 与缓存 | `curl -I /api/showcases`、`curl /api/showcases/old-photo-restoration`                                                                                                                                                                                             | API 为 200，返回 ETag 和 `public, max-age=60, stale-while-revalidate=300`；专题详情可读取；条件请求返回 304                                                                                                                          |
 | 129 native 运行时   | 在当前 release 的 bundled Node 中创建 `better-sqlite3 :memory:` 并执行 `select 1`                                                                                                                                                                                 | 通过；部署元数据为 Node `20.20.2`、`linux-x64-glibc`、`native_mode=linux-glibc228`、builder `161-docker`                                                                                                                             |
-| Outline 文档同步    | 先检索同名文档，再更新需求/报告并创建本版本操作日志                                                                                                                                                                                                               | 需求文档与报告已更新；129/161 v2.15.6 日志已创建并回读，均位于「操作记录」且为已发布状态（链接见“发布与部署”）                                             |
+| Outline 文档同步    | 先检索同名文档，再更新需求/报告并创建本版本操作日志                                                                                                                                                                                                               | 需求文档与报告已更新；129/161 v2.15.6 日志已创建并回读，均位于「操作记录」且为已发布状态（链接见“发布与部署”）                                                                                                                       |
 
 ## 发布与部署
 
-| 项目                 | 状态                                                                                                                                                                                          |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 目标版本             | `2.15.6`（当前基线 `2.15.5`）                                                                                                                                                                 |
-| 版本文件与 Changelog | 已更新为 `2.15.6` 并通过版本一致性检查；`CHANGELOG.md` 已加入 `v2.15.6` 小节                                                                                                                  |
-| commit/tag/push      | 功能提交 `0e34a00`、发布提交 `32f00e1`、annotated tag `v2.15.6` 均已推送到远端                                                                                                                  |
-| GitHub Actions       | Run `30857545674` 已完成且全部 7 个 jobs 成功；正式 Release 已发布                                                                                                                              |
-| Release 产物         | 15 个资产已核验，包含 DMG/updater、Windows、Linux、Android APK 及签名/元数据                                                                                                                     |
-| 129 部署             | 已通过独立 deployment worktree 和 161 Docker builder 部署；`current` 指向 `20260804062651-v2.15.6`，服务 `active`，线上路由/API 核验通过                                                    |
-| 142 部署             | 明确跳过；按 `RELEASE_PROCESS.md` 当前暂停                                                                                                                                                    |
+| 项目                 | 状态                                                                                                                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 目标版本             | `2.15.6`（当前基线 `2.15.5`）                                                                                                                                                             |
+| 版本文件与 Changelog | 已更新为 `2.15.6` 并通过版本一致性检查；`CHANGELOG.md` 已加入 `v2.15.6` 小节                                                                                                              |
+| commit/tag/push      | 功能提交 `0e34a00`、发布提交 `32f00e1`、annotated tag `v2.15.6` 均已推送到远端                                                                                                            |
+| GitHub Actions       | Run `30857545674` 已完成且全部 7 个 jobs 成功；正式 Release 已发布                                                                                                                        |
+| Release 产物         | 15 个资产已核验，包含 DMG/updater、Windows、Linux、Android APK 及签名/元数据                                                                                                              |
+| 129 部署             | 已通过独立 deployment worktree 和 161 Docker builder 部署；`current` 指向 `20260804062651-v2.15.6`，服务 `active`，线上路由/API 核验通过                                                  |
+| 142 部署             | 明确跳过；按 `RELEASE_PROCESS.md` 当前暂停                                                                                                                                                |
 | Outline              | 需求：`/doc/gpt-image-playground-U4dlPsf2LV`；报告：`/doc/v2156-RIyic3iPPT`；129：`/doc/gpt-image-playground-v2156-129-HCPCI4ob6j`；161：`/doc/gpt-image-playground-v2156-161-kRmY7F7XZY` |
 
 ## Autopilot 收尾复验（2026-08-04 07:25–07:52 CST）
 
 停止钩子发现 OMX autopilot 仍遗留在 `planning`。本轮没有重复修改已发布功能，而是将状态推进到 QA / validation，重新采集以下证据后再清理 mode 状态。
 
-| 视角 | 新鲜验证 | 结果 |
-| ---- | -------- | ---- |
-| 功能 | 专题/i18n 定向测试、生产 `/topics`、专题列表/详情 API、未登录后台跳转 | 8 个测试文件、64 项通过；线上路由分别为 200/307，行为符合预期 |
-| 质量 | `npm run typecheck`、`npm run lint -- --no-cache`、`npm run test`、`npm run build`、`npm run build:desktop`、`git diff --check` | 全部通过；全量为 116 个测试文件、1074 项。desktop 首次与 Web build 并行时命中 Next build lock，Web 完成后串行重跑通过 |
-| Rust | `npm run rust:test`、`npm run rust:clippy` | 83 项测试通过；Clippy 在 `-D warnings` 下通过 |
-| 依赖与密钥 | `npm run audit:prod`、`npm run secret-scan`、`npm run release:env-check` | npm audit 首次因 registry TLS 断开失败，重试后为 0 vulnerabilities；密钥与环境检查通过 |
-| Rust 依赖 | `cargo audit --no-fetch --stale --file src-tauri/Cargo.lock` | 缓存库扫描仍为 2 个已知 `quick-xml 0.39.2` 高危项；`quinn-proto` 告警未复现。另有 21 个允许的维护/unsound warning，继续作为 Tauri 依赖链风险跟踪 |
-| 发布 | `gh run view 30857545674`、`gh release view v2.15.6` | Action 7 个 jobs 全部成功；正式 Release 仍为非 draft/非 prerelease，15 个资产齐全 |
-| 生产 | 129 release/systemd/Node、ETag 条件请求、bundled `better-sqlite3`、回滚点 | 当前为 `20260804062651-v2.15.6`、服务 `active`、Node `20.20.2`；ETag 返回 304；SQLite 查询返回 1；`v2.15.5` 回滚目录仍在 |
-| 清理 | 161 source 环境、本地 worktree、浏览器会话、Outline 回读 | 161 `.env.production`/`.env.local` 均不存在；部署 worktree 已移除；无活跃浏览器会话；Outline 无待同步占位 |
+| 视角       | 新鲜验证                                                                                                                        | 结果                                                                                                                                             |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 功能       | 专题/i18n 定向测试、生产 `/topics`、专题列表/详情 API、未登录后台跳转                                                           | 8 个测试文件、64 项通过；线上路由分别为 200/307，行为符合预期                                                                                    |
+| 质量       | `npm run typecheck`、`npm run lint -- --no-cache`、`npm run test`、`npm run build`、`npm run build:desktop`、`git diff --check` | 全部通过；全量为 116 个测试文件、1074 项。desktop 首次与 Web build 并行时命中 Next build lock，Web 完成后串行重跑通过                            |
+| Rust       | `npm run rust:test`、`npm run rust:clippy`                                                                                      | 83 项测试通过；Clippy 在 `-D warnings` 下通过                                                                                                    |
+| 依赖与密钥 | `npm run audit:prod`、`npm run secret-scan`、`npm run release:env-check`                                                        | npm audit 首次因 registry TLS 断开失败，重试后为 0 vulnerabilities；密钥与环境检查通过                                                           |
+| Rust 依赖  | `cargo audit --no-fetch --stale --file src-tauri/Cargo.lock`                                                                    | 缓存库扫描仍为 2 个已知 `quick-xml 0.39.2` 高危项；`quinn-proto` 告警未复现。另有 21 个允许的维护/unsound warning，继续作为 Tauri 依赖链风险跟踪 |
+| 发布       | `gh run view 30857545674`、`gh release view v2.15.6`                                                                            | Action 7 个 jobs 全部成功；正式 Release 仍为非 draft/非 prerelease，15 个资产齐全                                                                |
+| 生产       | 129 release/systemd/Node、ETag 条件请求、bundled `better-sqlite3`、回滚点                                                       | 当前为 `20260804062651-v2.15.6`、服务 `active`、Node `20.20.2`；ETag 返回 304；SQLite 查询返回 1；`v2.15.5` 回滚目录仍在                         |
+| 清理       | 161 source 环境、本地 worktree、浏览器会话、Outline 回读                                                                        | 161 `.env.production`/`.env.local` 均不存在；部署 worktree 已移除；无活跃浏览器会话；Outline 无待同步占位                                        |
 
 ## 需求二次审计（2026-08-04 08:30 CST）
 
 本轮针对用户最初的“专业、全面地梳理专题能力需求”目标重新核对已发布基线 `v2.15.6`，并将实现状态与需求目标逐项对齐。审计只读取已提交基线；工作区中尚未提交的专题媒体实验代码不计入完成状态，也未被修改、暂存或纳入发布范围。
 
-| 审计目标 | 结论 | 文档处理 | 状态 |
-| -------- | ---- | -------- | ---- |
-| 媒体管理与真实案例 | 仍缺结构化媒体 CRUD、上传/存储闭环、来源授权、EXIF 和引用删除保护；CSS 占位不能作为真实案例验收 | 在需求第 29 章补充 P0 上线门槛与最低证据 | 部分完成 (Partial) |
-| 完整模型能力与配方字段 | 领域契约覆盖较多，但后台结构化表单和优选模型应用仍不完整，并存在隐藏字段 round-trip 风险 | 明确完整字段矩阵、尺寸模式、`preferredModelIds` 行为和 round-trip 验收 | 部分完成 (Partial) |
-| 未知配方版本兼容 | 当前会拒绝未知版本，尚不能保留单案例只读展示，单个异常可能扩大为目录回退 | 明确 `canApply=false`、禁止执行未知字段和单案例故障隔离 | 部分完成 (Partial) |
-| reduced motion | 卡片位移已部分降级，spinner 尚未逐项停用 | 明确静态状态、live region 与 Playwright reduced-motion 场景 | 部分完成 (Partial) |
-| 专题漏斗 | 只有任务/历史归因，没有曝光、打开、准备、应用和生成结果事件链 | 明确匿名事件白名单、脱敏、去重、失败隔离和跨运行时验收 | 未完成 (Not Completed) |
+| 审计目标               | 结论                                                                                            | 文档处理                                                               | 状态                   |
+| ---------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------- |
+| 媒体管理与真实案例     | 仍缺结构化媒体 CRUD、上传/存储闭环、来源授权、EXIF 和引用删除保护；CSS 占位不能作为真实案例验收 | 在需求第 29 章补充 P0 上线门槛与最低证据                               | 部分完成 (Partial)     |
+| 完整模型能力与配方字段 | 领域契约覆盖较多，但后台结构化表单和优选模型应用仍不完整，并存在隐藏字段 round-trip 风险        | 明确完整字段矩阵、尺寸模式、`preferredModelIds` 行为和 round-trip 验收 | 部分完成 (Partial)     |
+| 未知配方版本兼容       | 当前会拒绝未知版本，尚不能保留单案例只读展示，单个异常可能扩大为目录回退                        | 明确 `canApply=false`、禁止执行未知字段和单案例故障隔离                | 部分完成 (Partial)     |
+| reduced motion         | 卡片位移已部分降级，spinner 尚未逐项停用                                                        | 明确静态状态、live region 与 Playwright reduced-motion 场景            | 部分完成 (Partial)     |
+| 专题漏斗               | 只有任务/历史归因，没有曝光、打开、准备、应用和生成结果事件链                                   | 明确匿名事件白名单、脱敏、去重、失败隔离和跨运行时验收                 | 未完成 (Not Completed) |
 
 本轮只修改需求和报告，不改变用户可见 UI、运行时逻辑、数据库或配置，因此浏览器、主题、移动端和 Tauri 真机验证不适用；发布质量门与线上验证将在 `v2.15.7` 发布报告中单独记录。
 
 ## v2.15.7 需求审计发布复验（2026-08-04 08:30–09:00 CST）
 
-| 项目 | 结果 |
-| ---- | ---- |
-| 文档 | 需求第 29 章和本报告的二次审计已提交；文档目标完成，专题产品闭环仍按真实证据保持 `Partial` |
-| 发布 | `14c0775 chore: release v2.15.7` 与 annotated tag `v2.15.7` 已推送 |
-| Action | Run `30866508400` 全部 7 个 jobs 成功，正式 Release 已发布，15 个桌面/Android/updater 资产齐全 |
-| 129 | `current` 指向 `20260804084729-v2.15.7`，systemd `active`；根页、专题页、后台跳转、专题 API、ETag 304 和 SQLite 自检通过 |
-| Outline | 需求与持续报告已更新；发布报告 `/doc/gpt-image-playground-v2157-GE5qvV4SZJ`、129 `/doc/gpt-image-playground-v2157-129-TVg41HrYPu`、161 `/doc/gpt-image-playground-v2157-161-RcMeCPbMm5` 已发布 |
-| 明确跳过 | 142 按发布规范暂停；本次无 UI 代码，不重复浏览器/主题验证；桌面与 Android 安装级冒烟未执行 |
+| 项目     | 结果                                                                                                                                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 文档     | 需求第 29 章和本报告的二次审计已提交；文档目标完成，专题产品闭环仍按真实证据保持 `Partial`                                                                                                     |
+| 发布     | `14c0775 chore: release v2.15.7` 与 annotated tag `v2.15.7` 已推送                                                                                                                             |
+| Action   | Run `30866508400` 全部 7 个 jobs 成功，正式 Release 已发布，15 个桌面/Android/updater 资产齐全                                                                                                 |
+| 129      | `current` 指向 `20260804084729-v2.15.7`，systemd `active`；根页、专题页、后台跳转、专题 API、ETag 304 和 SQLite 自检通过                                                                       |
+| Outline  | 需求与持续报告已更新；发布报告 `/doc/gpt-image-playground-v2157-GE5qvV4SZJ`、129 `/doc/gpt-image-playground-v2157-129-TVg41HrYPu`、161 `/doc/gpt-image-playground-v2157-161-RcMeCPbMm5` 已发布 |
+| 明确跳过 | 142 按发布规范暂停；本次无 UI 代码，不重复浏览器/主题验证；桌面与 Android 安装级冒烟未执行                                                                                                     |
 
 详细命令、质量门、已知 Rust 依赖风险和资产清单见 [v2.15.7 发布与构建报告](./2026-08-04-release-2.15.7.md)。
 
 ## 托管媒体、兼容降级与匿名漏斗增量（2026-08-04）
 
-| 请求目标 | 实际结果 | 主要证据 | 状态 |
-| -------- | -------- | -------- | ---- |
-| 后台管理专题媒体 | 新增 JPEG/PNG/WebP/AVIF 上传、版权/授权与双语 alt、展示图/缩略图、媒体库、专题/案例 cover/input/output 指派和永久删除 | `src/lib/server/showcase/media.ts`、`src/app/api/admin/showcase-assets/*`、`src/components/admin/showcase-admin-client.tsx` | 已完成 (Completed) |
-| 发布媒体安全 | 发布前复查托管文件存在性、大小、checksum、尺寸和 Sharp 解码；只记录实际引用媒体；引用中的媒体删除返回 409 | media/admin 集成测试 | 已完成 (Completed) |
-| 未来 recipe 兼容 | 当前客户端声明扩展版本，安全保留单案例只读文案/媒体并阻止执行；旧 v1 客户端过滤未来案例，不影响正常案例 | `showcase.ts`、`public.ts`、客户端/服务端测试 | 已完成 (Completed) |
-| 匿名专题漏斗 | 实现曝光到生成结果事件链、白名单校验、异步批量发送、保留上限与后台 30 天汇总；不记录图片、完整 prompt、路径、凭证、IP 或跨站 ID | `showcase-analytics*.ts`、事件/指标 API、后台指标卡 | 部分完成 (Partial)：尚缺生产口径复核和多实例集中存储 |
-| reduced motion | 专题目录、引导和后台加载 spinner 均补充 `motion-reduce:animate-none`，状态文字继续通过 live region / status 表达 | 前端组件、后续浏览器验证 | 已完成 (Completed) |
-| 默认真实案例 | 内置 6 专题、24 案例仍使用明确标识的 CSS 演示占位 | `src/lib/default-showcases.ts` | 部分完成 (Partial) |
+| 请求目标         | 实际结果                                                                                                                        | 主要证据                                                                                                                    | 状态                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 后台管理专题媒体 | 新增 JPEG/PNG/WebP/AVIF 上传、版权/授权与双语 alt、展示图/缩略图、媒体库、专题/案例 cover/input/output 指派和永久删除           | `src/lib/server/showcase/media.ts`、`src/app/api/admin/showcase-assets/*`、`src/components/admin/showcase-admin-client.tsx` | 已完成 (Completed)                                   |
+| 发布媒体安全     | 发布前复查托管文件存在性、大小、checksum、尺寸和 Sharp 解码；只记录实际引用媒体；引用中的媒体删除返回 409                       | media/admin 集成测试                                                                                                        | 已完成 (Completed)                                   |
+| 未来 recipe 兼容 | 当前客户端声明扩展版本，安全保留单案例只读文案/媒体并阻止执行；旧 v1 客户端过滤未来案例，不影响正常案例                         | `showcase.ts`、`public.ts`、客户端/服务端测试                                                                               | 已完成 (Completed)                                   |
+| 匿名专题漏斗     | 实现曝光到生成结果事件链、白名单校验、异步批量发送、保留上限与后台 30 天汇总；不记录图片、完整 prompt、路径、凭证、IP 或跨站 ID | `showcase-analytics*.ts`、事件/指标 API、后台指标卡                                                                         | 部分完成 (Partial)：尚缺生产口径复核和多实例集中存储 |
+| reduced motion   | 专题目录、引导和后台加载 spinner 均补充 `motion-reduce:animate-none`，状态文字继续通过 live region / status 表达                | 前端组件、后续浏览器验证                                                                                                    | 已完成 (Completed)                                   |
+| 默认真实案例     | 内置 6 专题、24 案例仍使用明确标识的 CSS 演示占位                                                                               | `src/lib/default-showcases.ts`                                                                                              | 部分完成 (Partial)                                   |
 
 ### 本轮问题与解决
 
-| 问题 | 解决办法 | 剩余风险 |
-| ---- | -------- | -------- |
-| 草稿保存、托管媒体复查与审计原先分散提交，媒体删除也可能在引用复查后遇到竞态 | 专题 create/update 将托管媒体复查、草稿写入和审计放入同一 `IMMEDIATE` 事务；媒体删除将引用复查、文件隔离、DB 删除和审计放入同一写事务，失败时恢复隔离文件 | 跨进程文件系统故障仍需依赖隔离文件恢复；多实例部署仍应使用共享存储或对象存储 |
-| 外部 HTTPS 资产过去只做 URL 结构校验，无法证明发布时真实可用 | 新增逐跳 DNS/IP 复检、固定已校验 IP 的 HTTPS 请求、总超时、重定向、大小、MIME、Sharp 解码与尺寸校验；失败不创建 publication | 特殊 CDN 或依赖敏感签名参数的对象存储 URL 需要改用托管媒体上传或调整安全策略后再接入 |
-| schema v1 无法表达未来案例只读字段 | 当前客户端发送 `X-Showcase-Client-Version: 2`；未声明的旧客户端获取过滤后的严格 v1 响应 | 正式 catalog v2 仍应在未来单独版本化，而不是长期依赖扩展 header |
-| 托管目录草稿中含未引用媒体会被永久锁定 | 发布快照只保留专题/案例实际引用的资产，并只写这些 publication refs | 本地磁盘是唯一存储后端；多实例需共享持久卷 |
-| 自定义尺寸拆成宽、高两个受控输入时，首次只填写一边会被归一化逻辑清空 | 后台改成单个“宽×高”文本输入，编辑阶段保留半成品，保存时再解析为 `customWidth` / `customHeight` | 仍需在输入提示中明确合法范围，非法完整值会在保存校验时拒绝 |
-| 媒体删除确认嵌套在媒体库 Dialog 内，焦点与移动端历史行为不稳定 | 先关闭媒体库再打开确认 Dialog；取消、删除成功或引用保护失败后均返回媒体库 | 无已知剩余交互风险；继续依赖项目 Dialog 回归测试 |
+| 问题                                                                         | 解决办法                                                                                                                                                  | 剩余风险                                                                             |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 草稿保存、托管媒体复查与审计原先分散提交，媒体删除也可能在引用复查后遇到竞态 | 专题 create/update 将托管媒体复查、草稿写入和审计放入同一 `IMMEDIATE` 事务；媒体删除将引用复查、文件隔离、DB 删除和审计放入同一写事务，失败时恢复隔离文件 | 跨进程文件系统故障仍需依赖隔离文件恢复；多实例部署仍应使用共享存储或对象存储         |
+| 外部 HTTPS 资产过去只做 URL 结构校验，无法证明发布时真实可用                 | 新增逐跳 DNS/IP 复检、固定已校验 IP 的 HTTPS 请求、总超时、重定向、大小、MIME、Sharp 解码与尺寸校验；失败不创建 publication                               | 特殊 CDN 或依赖敏感签名参数的对象存储 URL 需要改用托管媒体上传或调整安全策略后再接入 |
+| schema v1 无法表达未来案例只读字段                                           | 当前客户端发送 `X-Showcase-Client-Version: 2`；未声明的旧客户端获取过滤后的严格 v1 响应                                                                   | 正式 catalog v2 仍应在未来单独版本化，而不是长期依赖扩展 header                      |
+| 托管目录草稿中含未引用媒体会被永久锁定                                       | 发布快照只保留专题/案例实际引用的资产，并只写这些 publication refs                                                                                        | 本地磁盘是唯一存储后端；多实例需共享持久卷                                           |
+| 自定义尺寸拆成宽、高两个受控输入时，首次只填写一边会被归一化逻辑清空         | 后台改成单个“宽×高”文本输入，编辑阶段保留半成品，保存时再解析为 `customWidth` / `customHeight`                                                            | 仍需在输入提示中明确合法范围，非法完整值会在保存校验时拒绝                           |
+| 媒体删除确认嵌套在媒体库 Dialog 内，焦点与移动端历史行为不稳定               | 先关闭媒体库再打开确认 Dialog；取消、删除成功或引用保护失败后均返回媒体库                                                                                 | 无已知剩余交互风险；继续依赖项目 Dialog 回归测试                                     |
 
 ### 本轮验证
 
-| 检查项 | 命令或场景 | 结果 |
-| ------ | ---------- | ---- |
-| 定向增量测试 | `rtk npm run test -- --run 'src/app/api/showcase-media/[id]/route.test.ts' src/app/api/showcases/route.test.ts src/lib/server/showcase/analytics.test.ts src/lib/server/showcase/media.test.ts src/lib/server/showcase/public.test.ts src/lib/showcase-admin-draft.test.ts src/lib/showcase-analytics.test.ts src/lib/showcase-client.test.ts src/lib/showcase-recipe.test.ts src/lib/showcase.test.ts` | 10 个文件、53 项通过 |
-| TypeScript / ESLint | `rtk npm run typecheck`；`rtk npm run lint -- --no-cache` | 通过 |
-| 完整前端质量门 | `rtk npm ci`；`rtk npm run secret-scan`；`rtk npm run release:env-check`；`rtk npm run audit:prod`；`rtk npm run typecheck`；`rtk npm run lint`；`rtk npm run test`；`rtk npm run build`；`rtk npm run build:desktop` | 全部通过；全量 121 个测试文件、1093 项通过；`npm audit` 第三次在 registry TLS 恢复后为 0 vulnerabilities |
-| Rust 质量门 | `rtk npm run rust:test`；`rtk npm run rust:clippy`；`rtk cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1` | 83 项测试通过；Clippy 通过；锁文件 metadata 可解析 |
-| Rust 依赖审计 | 在线 `cargo audit`；`rtk cargo audit --no-fetch --stale --file src-tauri/Cargo.lock` | 在线 advisory DB 更新因 GitHub 网络失败；离线扫描完成但仍因 `quick-xml 0.39.2` 的 `RUSTSEC-2026-0194`、`RUSTSEC-2026-0195` 非零退出，另有 21 个允许的维护/unsound warning |
-| 前台浏览器 | 1440×900 浅色专题中心、老照片专题/案例、Guide；1280×800 深色；390×844 浅色/深色；reduced-motion | 6 个专题完整，无横向溢出，console 0 error / 0 warning；Guide 不自动提交，提示词、输入槽和兼容性可见；reduced-motion 下卡片 transform 为 `none` 且无持续 animation |
-| 后台浏览器 | 独立临时 SQLite + 测试 owner；专题指标、结构化字段、单字段自定义尺寸、媒体上传/指派/删除保护；390×844 深色 | 指标卡加载；`1200` 半成品不被清空，`1200×1600` 和推荐模型保存成功；被草稿引用媒体删除返回 409；确认仅 1 个顶层 Dialog；取消/成功删除后返回媒体库；无横向溢出，刷新后 console 0 error / 0 warning |
-| 未来 recipe 浏览器 | 拦截 `/api/showcases`，把一个真实案例改为 recipe v2 并加入未知 `workflowScript` | 卡片显示“需要更新客户端”且无“跟着创作”；详情显示“输入要求未知”和只读 prompt；deep-link 被消费后不打开 Guide、不写入 prompt、不执行未知字段 |
-| 清理 | 关闭 `v2158` / `v2158future` 浏览器会话并停止 3108 临时服务 | 已完成；临时 DB 与媒体目录位于 `/tmp`，不纳入仓库 |
+| 检查项              | 命令或场景                                                                                                                                                                                                                                                                                                                                                                                              | 结果                                                                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 定向增量测试        | `rtk npm run test -- --run 'src/app/api/showcase-media/[id]/route.test.ts' src/app/api/showcases/route.test.ts src/lib/server/showcase/analytics.test.ts src/lib/server/showcase/media.test.ts src/lib/server/showcase/public.test.ts src/lib/showcase-admin-draft.test.ts src/lib/showcase-analytics.test.ts src/lib/showcase-client.test.ts src/lib/showcase-recipe.test.ts src/lib/showcase.test.ts` | 10 个文件、53 项通过                                                                                                                                                                             |
+| TypeScript / ESLint | `rtk npm run typecheck`；`rtk npm run lint -- --no-cache`                                                                                                                                                                                                                                                                                                                                               | 通过                                                                                                                                                                                             |
+| 完整前端质量门      | `rtk npm ci`；`rtk npm run secret-scan`；`rtk npm run release:env-check`；`rtk npm run audit:prod`；`rtk npm run typecheck`；`rtk npm run lint`；`rtk npm run test`；`rtk npm run build`；`rtk npm run build:desktop`                                                                                                                                                                                   | 全部通过；全量 121 个测试文件、1093 项通过；`npm audit` 第三次在 registry TLS 恢复后为 0 vulnerabilities                                                                                         |
+| Rust 质量门         | `rtk npm run rust:test`；`rtk npm run rust:clippy`；`rtk cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1`                                                                                                                                                                                                                                                               | 83 项测试通过；Clippy 通过；锁文件 metadata 可解析                                                                                                                                               |
+| Rust 依赖审计       | 在线 `cargo audit`；`rtk cargo audit --no-fetch --stale --file src-tauri/Cargo.lock`                                                                                                                                                                                                                                                                                                                    | 在线 advisory DB 更新因 GitHub 网络失败；离线扫描完成但仍因 `quick-xml 0.39.2` 的 `RUSTSEC-2026-0194`、`RUSTSEC-2026-0195` 非零退出，另有 21 个允许的维护/unsound warning                        |
+| 前台浏览器          | 1440×900 浅色专题中心、老照片专题/案例、Guide；1280×800 深色；390×844 浅色/深色；reduced-motion                                                                                                                                                                                                                                                                                                         | 6 个专题完整，无横向溢出，console 0 error / 0 warning；Guide 不自动提交，提示词、输入槽和兼容性可见；reduced-motion 下卡片 transform 为 `none` 且无持续 animation                                |
+| 后台浏览器          | 独立临时 SQLite + 测试 owner；专题指标、结构化字段、单字段自定义尺寸、媒体上传/指派/删除保护；390×844 深色                                                                                                                                                                                                                                                                                              | 指标卡加载；`1200` 半成品不被清空，`1200×1600` 和推荐模型保存成功；被草稿引用媒体删除返回 409；确认仅 1 个顶层 Dialog；取消/成功删除后返回媒体库；无横向溢出，刷新后 console 0 error / 0 warning |
+| 未来 recipe 浏览器  | 拦截 `/api/showcases`，把一个真实案例改为 recipe v2 并加入未知 `workflowScript`                                                                                                                                                                                                                                                                                                                         | 卡片显示“需要更新客户端”且无“跟着创作”；详情显示“输入要求未知”和只读 prompt；deep-link 被消费后不打开 Guide、不写入 prompt、不执行未知字段                                                       |
+| 清理                | 关闭 `v2158` / `v2158future` 浏览器会话并停止 3108 临时服务                                                                                                                                                                                                                                                                                                                                             | 已完成；临时 DB 与媒体目录位于 `/tmp`，不纳入仓库                                                                                                                                                |
 
 ## v2.15.8 发布与生产复验（2026-08-04 11:14–11:45 CST）
 
-| 项目 | 结果 |
-| ---- | ---- |
-| 提交与 tag | `ef1fa43 feat(showcase): add managed media and funnel insights`；`23f9cba chore: release v2.15.8`；annotated tag `v2.15.8`，`master` 与 tag 均已推送 |
-| Action | Run `30874164460` 完成且为 `success`；发布元数据/Web、Release notes、Android、Windows、Linux、macOS、Publish Release 共 7 个 jobs 全部成功 |
-| Release | 正式 Release 非 draft、非 prerelease，共 15 个资产；包含 DMG/app updater、EXE/MSI、deb/rpm/AppImage、相应签名、release-signed Android APK 和 `latest.json` |
-| 129 | `current` 指向 `20260804112334-v2.15.8`，systemd `active`，Node `20.20.2`，构建后端 `161-docker`，native `linux-glibc228`；运行包约 47 MB，目录约 147 MB |
-| HTTP | `/`、`/topics`、`/api/showcases` 返回 200；`/admin`、`/admin/showcases` 返回 307 并跳转 `/admin/login`；目录为 6 个专题、24 个案例、56 个媒体，ETag 条件请求返回 304 |
-| SQLite | 按 `src/lib/server/db.ts` 的真实路径规则只读打开生产库；`showcase_assets`、`showcase_publication_assets`、`showcase_events` 均存在且当前 0 行，`PRAGMA quick_check = ok` |
-| 安全与回滚 | 两项认证 secret 只检查存在性且均保留；最新环境备份 `.env.20260804113001`；上一回滚目录 `20260804084729-v2.15.7` |
-| 161 | artifact 48,698,129 bytes，SHA-256 `7d6a60c0ea2dd7a49ddbd5ae7b94254ff47a548f336bc5465126b2f78a2ab616`；source 中无 `.env.production` / `.env.local` |
-| 明确跳过 | 142 按 `RELEASE_PROCESS.md` 暂停；桌面包与 Android APK 未执行安装级真机验收 |
+| 项目       | 结果                                                                                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 提交与 tag | `ef1fa43 feat(showcase): add managed media and funnel insights`；`23f9cba chore: release v2.15.8`；annotated tag `v2.15.8`，`master` 与 tag 均已推送                     |
+| Action     | Run `30874164460` 完成且为 `success`；发布元数据/Web、Release notes、Android、Windows、Linux、macOS、Publish Release 共 7 个 jobs 全部成功                               |
+| Release    | 正式 Release 非 draft、非 prerelease，共 15 个资产；包含 DMG/app updater、EXE/MSI、deb/rpm/AppImage、相应签名、release-signed Android APK 和 `latest.json`               |
+| 129        | `current` 指向 `20260804112334-v2.15.8`，systemd `active`，Node `20.20.2`，构建后端 `161-docker`，native `linux-glibc228`；运行包约 47 MB，目录约 147 MB                 |
+| HTTP       | `/`、`/topics`、`/api/showcases` 返回 200；`/admin`、`/admin/showcases` 返回 307 并跳转 `/admin/login`；目录为 6 个专题、24 个案例、56 个媒体，ETag 条件请求返回 304     |
+| SQLite     | 按 `src/lib/server/db.ts` 的真实路径规则只读打开生产库；`showcase_assets`、`showcase_publication_assets`、`showcase_events` 均存在且当前 0 行，`PRAGMA quick_check = ok` |
+| 安全与回滚 | 两项认证 secret 只检查存在性且均保留；最新环境备份 `.env.20260804113001`；上一回滚目录 `20260804084729-v2.15.7`                                                          |
+| 161        | artifact 48,698,129 bytes，SHA-256 `7d6a60c0ea2dd7a49ddbd5ae7b94254ff47a548f336bc5465126b2f78a2ab616`；source 中无 `.env.production` / `.env.local`                      |
+| 明确跳过   | 142 按 `RELEASE_PROCESS.md` 暂停；桌面包与 Android APK 未执行安装级真机验收                                                                                              |
 
 详细发布证据见 [v2.15.8 发布与构建报告](./2026-08-04-release-2.15.8.md)。Outline：需求 `/doc/gpt-image-playground-U4dlPsf2LV`，持续报告 `/doc/5lit6aky5qgi5l6l5lio5byv5a85byp5yib5l2c6io95yqb5a6e546w5lio5yr5bid5oql5zgk-RIyic3iPPT`，发布报告 `/doc/gpt-image-playground-v2158-hDVXX80dEC`，129 `/doc/gpt-image-playground-v2158-129-oxWHSApp9m`，161 `/doc/gpt-image-playground-v2158-161-2oR6uARHmD`。
 
@@ -222,158 +222,205 @@
 
 ## 完整结构化运营字段与外部媒体发布探测增量（2026-08-04）
 
-| 请求目标 | 实际结果 | 主要证据 | 状态 |
-| -------- | -------- | -------- | ---- |
-| FAQ 与相关专题 | 后台结构化编辑器可添加、双语编辑、删除 FAQ，并从现有专题中选择或清空相关专题 | `showcase-admin-client.tsx`、`showcase-admin-draft.ts`、服务端 round-trip 测试 | 已完成 (Completed) |
-| 用户补充要求 | 可启用/关闭、限制 1–2000 字，并选择是否在双语 prompt 中显式写入 `{{user_instruction}}`；关闭时同步清理 token | helper 单测、recipe 标准化测试 | 已完成 (Completed) |
-| 输入槽位完整编辑 | 结构化维护双语说明、必填、最少/最多图片数与 JPEG/PNG/WebP/通配 MIME；通配和具体类型按互斥规则切换 | helper 单测、浏览器保存刷新 | 已完成 (Completed) |
-| 输出背景与审核 | 结构化维护并可清空 `background` / `moderation` | 后台字段 round-trip 测试、浏览器保存刷新 | 已完成 (Completed) |
-| 外部 HTTPS 发布探测 | 对实际引用的展示图和缩略图执行逐跳 DNS/IP 复检、固定已验证 IP 的 HTTPS 请求、敏感参数/默认端口限制、3 次重定向、10 秒总预算、12 MB 上限、MIME/Sharp 格式/像素/尺寸校验；失败不创建快照 | `remote-media.ts`、`remote-media.test.ts`、`showcase.test.ts` | 已完成 (Completed) |
-| 默认真实案例资产 | 当前会话没有可调用的内置 `image_gen`；按技能约束未静默切换到需要 `OPENAI_API_KEY` 的 CLI，也未用占位或现有演示图冒充真实生成案例 | `src/lib/default-showcases.ts` 仍明确使用 placeholder | 部分完成 (Partial) |
+| 请求目标            | 实际结果                                                                                                                                                                               | 主要证据                                                                       | 状态               |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------ |
+| FAQ 与相关专题      | 后台结构化编辑器可添加、双语编辑、删除 FAQ，并从现有专题中选择或清空相关专题                                                                                                           | `showcase-admin-client.tsx`、`showcase-admin-draft.ts`、服务端 round-trip 测试 | 已完成 (Completed) |
+| 用户补充要求        | 可启用/关闭、限制 1–2000 字，并选择是否在双语 prompt 中显式写入 `{{user_instruction}}`；关闭时同步清理 token                                                                           | helper 单测、recipe 标准化测试                                                 | 已完成 (Completed) |
+| 输入槽位完整编辑    | 结构化维护双语说明、必填、最少/最多图片数与 JPEG/PNG/WebP/通配 MIME；通配和具体类型按互斥规则切换                                                                                      | helper 单测、浏览器保存刷新                                                    | 已完成 (Completed) |
+| 输出背景与审核      | 结构化维护并可清空 `background` / `moderation`                                                                                                                                         | 后台字段 round-trip 测试、浏览器保存刷新                                       | 已完成 (Completed) |
+| 外部 HTTPS 发布探测 | 对实际引用的展示图和缩略图执行逐跳 DNS/IP 复检、固定已验证 IP 的 HTTPS 请求、敏感参数/默认端口限制、3 次重定向、10 秒总预算、12 MB 上限、MIME/Sharp 格式/像素/尺寸校验；失败不创建快照 | `remote-media.ts`、`remote-media.test.ts`、`showcase.test.ts`                  | 已完成 (Completed) |
+| 默认真实案例资产    | 当前会话没有可调用的内置 `image_gen`；按技能约束未静默切换到需要 `OPENAI_API_KEY` 的 CLI，也未用占位或现有演示图冒充真实生成案例                                                       | `src/lib/default-showcases.ts` 仍明确使用 placeholder                          | 部分完成 (Partial) |
 
 ### 浏览器与交互复验
 
-| 场景 | 结果 |
-| ---- | ---- |
-| 1280×800 / 浅色后台 | FAQ、相关专题、用户补充要求、输入数量/MIME、背景和审核区块正常渲染；整体保持原有工具型后台布局 |
-| 保存刷新 | `maxLength=777`、`maxCount=3`、PNG+WebP、透明背景和 `low` 审核保存后刷新完整保留；双语 FAQ 保存接口返回 200，刷新后第三条问答值保留 |
-| 非法内容反馈 | 仅填写中文 FAQ 时服务端返回 400，草稿未被污染；补齐中英文后保存成功 |
-| 390×844 / 深色 | `scrollWidth = clientWidth = 390`，无表单控件越界；根元素为 `dark` 且 `color-scheme: dark` |
-| Console | 最终页面为 0 error / 0 warning；仅开发环境 React DevTools/HMR 信息 |
-| 清理 | `showcase-v2159` 浏览器会话、3110 开发服务和临时测试环境均已关闭；临时 SQLite/媒体目录不纳入仓库 |
+| 场景                | 结果                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 1280×800 / 浅色后台 | FAQ、相关专题、用户补充要求、输入数量/MIME、背景和审核区块正常渲染；整体保持原有工具型后台布局                                      |
+| 保存刷新            | `maxLength=777`、`maxCount=3`、PNG+WebP、透明背景和 `low` 审核保存后刷新完整保留；双语 FAQ 保存接口返回 200，刷新后第三条问答值保留 |
+| 非法内容反馈        | 仅填写中文 FAQ 时服务端返回 400，草稿未被污染；补齐中英文后保存成功                                                                 |
+| 390×844 / 深色      | `scrollWidth = clientWidth = 390`，无表单控件越界；根元素为 `dark` 且 `color-scheme: dark`                                          |
+| Console             | 最终页面为 0 error / 0 warning；仅开发环境 React DevTools/HMR 信息                                                                  |
+| 清理                | `showcase-v2159` 浏览器会话、3110 开发服务和临时测试环境均已关闭；临时 SQLite/媒体目录不纳入仓库                                    |
 
 ## v2.15.9 发布与生产复验（2026-08-04 13:32–14:20 CST）
 
-| 项目 | 结果 |
-| ---- | ---- |
-| 提交与 tag | `52d944a feat(showcase): complete structured operations and remote media checks`；`9de3c2d chore: release v2.15.9`；annotated tag `v2.15.9`，`master` 与 tag 均已推送 |
-| Action | Run `30881052131` 为 `completed / success`；发布元数据/Web、Release notes、Windows、Linux、macOS、Android、Publish Release 共 7 个 jobs 全部成功 |
-| Release | 正式 Release 非 draft、非 prerelease，共 15 个资产；包含桌面安装包、updater 签名、release-signed Android APK 和 `latest.json` |
-| 129 | `current` 指向 `20260804140657-v2.15.9`，systemd `active`、`NRestarts=0`；Node `20.20.2`，构建后端 `161-docker`，native `linux-glibc228` |
-| HTTP | `/`、`/topics`、`/api/showcases` 返回 200；后台三条路由返回 307 到 `/admin/login`；根页为 no-cache；目录 6 专题、24 案例、56 媒体，ETag 304 |
-| SQLite | `PRAGMA quick_check=ok`；托管媒体 0、发布媒体引用 0、匿名漏斗事件 19；只核对表与数量，不读取业务内容 |
-| 构建故障处理 | 官方 Debian archive 两次不可达、阿里云 HTTPS CA 引导一次失败，均发生在 129 写入前；detached worktree 临时使用阿里云 HTTP archive 和缓存 Node headers 后构建成功 |
-| 安全与回滚 | 两项认证 secret 均保留，共享 `.env` 权限 600；环境备份 `.env.20260804141055`；上一回滚目录 `20260804112334-v2.15.8` |
-| 清理 | 161 source 无 `.env.production` / `.env.local`；一次性容器退出；本地 detached worktree 与临时生产环境已移除 |
-| 明确跳过 | 142 按发布规范暂停；桌面与 Android Release 资产未执行安装级真机验收 |
+| 项目         | 结果                                                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 提交与 tag   | `52d944a feat(showcase): complete structured operations and remote media checks`；`9de3c2d chore: release v2.15.9`；annotated tag `v2.15.9`，`master` 与 tag 均已推送 |
+| Action       | Run `30881052131` 为 `completed / success`；发布元数据/Web、Release notes、Windows、Linux、macOS、Android、Publish Release 共 7 个 jobs 全部成功                      |
+| Release      | 正式 Release 非 draft、非 prerelease，共 15 个资产；包含桌面安装包、updater 签名、release-signed Android APK 和 `latest.json`                                         |
+| 129          | `current` 指向 `20260804140657-v2.15.9`，systemd `active`、`NRestarts=0`；Node `20.20.2`，构建后端 `161-docker`，native `linux-glibc228`                              |
+| HTTP         | `/`、`/topics`、`/api/showcases` 返回 200；后台三条路由返回 307 到 `/admin/login`；根页为 no-cache；目录 6 专题、24 案例、56 媒体，ETag 304                           |
+| SQLite       | `PRAGMA quick_check=ok`；托管媒体 0、发布媒体引用 0、匿名漏斗事件 19；只核对表与数量，不读取业务内容                                                                  |
+| 构建故障处理 | 官方 Debian archive 两次不可达、阿里云 HTTPS CA 引导一次失败，均发生在 129 写入前；detached worktree 临时使用阿里云 HTTP archive 和缓存 Node headers 后构建成功       |
+| 安全与回滚   | 两项认证 secret 均保留，共享 `.env` 权限 600；环境备份 `.env.20260804141055`；上一回滚目录 `20260804112334-v2.15.8`                                                   |
+| 清理         | 161 source 无 `.env.production` / `.env.local`；一次性容器退出；本地 detached worktree 与临时生产环境已移除                                                           |
+| 明确跳过     | 142 按发布规范暂停；桌面与 Android Release 资产未执行安装级真机验收                                                                                                   |
 
 详细质量门、资产、部署问题与解决证据见 [v2.15.9 发布与构建报告](./2026-08-04-release-2.15.9.md)。Outline：需求 `/doc/gpt-image-playground-U4dlPsf2LV`，持续报告 `/doc/5lit6aky5qgi5l6l5lio5byv5a85byp5yib5l2c6io95yqb5a6e546w5lio5yr5bid5oql5zgk-RIyic3iPPT`，发布报告 `/doc/gpt-image-playground-v2159-LYlVDUgsSp`，129 `/doc/gpt-image-playground-v2159-129-HQuJJPFvxr`，161 `/doc/gpt-image-playground-v2159-161-PUdTyuZ3lh`。
 
 ## v2.15.10 专题发现与分析可靠性增量（2026-08-04）
 
-| 请求目标 | 实际结果 | 主要证据 | 状态 |
-| -------- | -------- | -------- | ---- |
-| 降低新手发现成本 | 专题中心新增推荐/最近更新/新手排序、任务分类、输入类型、能力标签和搜索；专题卡显示图片数量和当前配置可用性 | `showcase-topics-page.tsx`、`showcase-topic-card.tsx`、`showcase-availability.ts` | 已完成 (Completed) |
-| 更直观理解案例 | 案例卡展示输入角色和顺序，详情可复制默认提示词并反馈失败，紧凑卡支持前后对比切换 | `showcase-case-card.tsx`、`showcase-detail.tsx`、`showcase-media.tsx` | 已完成 (Completed) |
-| 后台分类与数据导出 | 结构化编辑器支持双语任务分类，owner/admin 可导出最近 30 天匿名 NDJSON，服务端限制时间窗/行数并写审计 | 后台 UI、`showcase-metrics` API、服务端 analytics | 已完成 (Completed) |
-| 旧客户端兼容 | 支持扩展字段的客户端通过 `x-showcase-client-version: 2` 声明扩展 wire 契约（不是 catalog schema v2）；v1 响应剔除分类、发布时间和未来 recipe，并同步过滤专题案例引用 | `showcase-client.ts`、`public.ts` 及测试 | 已完成 (Completed) |
-| 匿名事件可靠性 | 有界持久队列、有限退避、非 2xx 回队、页面隐藏 Beacon、目录版本+专题曝光去重和确定性导出顺序 | `showcase-analytics-client.ts`、`analytics.ts` 及测试 | 已完成 (Completed) |
-| 真实内容和规模运营 | 默认 24 个案例仍为明确标注的 CSS 占位；未完成 5 名新手测试、多实例自动汇聚和桌面/Android 安装级验收 | 需求第 30 章与发布报告 | 部分完成 (Partial) |
+| 请求目标           | 实际结果                                                                                                                                                             | 主要证据                                                                          | 状态               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------ |
+| 降低新手发现成本   | 专题中心新增推荐/最近更新/新手排序、任务分类、输入类型、能力标签和搜索；专题卡显示图片数量和当前配置可用性                                                           | `showcase-topics-page.tsx`、`showcase-topic-card.tsx`、`showcase-availability.ts` | 已完成 (Completed) |
+| 更直观理解案例     | 案例卡展示输入角色和顺序，详情可复制默认提示词并反馈失败，紧凑卡支持前后对比切换                                                                                     | `showcase-case-card.tsx`、`showcase-detail.tsx`、`showcase-media.tsx`             | 已完成 (Completed) |
+| 后台分类与数据导出 | 结构化编辑器支持双语任务分类，owner/admin 可导出最近 30 天匿名 NDJSON，服务端限制时间窗/行数并写审计                                                                 | 后台 UI、`showcase-metrics` API、服务端 analytics                                 | 已完成 (Completed) |
+| 旧客户端兼容       | 支持扩展字段的客户端通过 `x-showcase-client-version: 2` 声明扩展 wire 契约（不是 catalog schema v2）；v1 响应剔除分类、发布时间和未来 recipe，并同步过滤专题案例引用 | `showcase-client.ts`、`public.ts` 及测试                                          | 已完成 (Completed) |
+| 匿名事件可靠性     | 有界持久队列、有限退避、非 2xx 回队、页面隐藏 Beacon、目录版本+专题曝光去重和确定性导出顺序                                                                          | `showcase-analytics-client.ts`、`analytics.ts` 及测试                             | 已完成 (Completed) |
+| 真实内容和规模运营 | 默认 24 个案例仍为明确标注的 CSS 占位；未完成 5 名新手测试、多实例自动汇聚和桌面/Android 安装级验收                                                                  | 需求第 30 章与发布报告                                                            | 部分完成 (Partial) |
 
 ### 问题与解决
 
-| 问题 | 解决办法 | 剩余风险 |
-| ---- | -------- | -------- |
-| 专题卡状态在用户修改模型或凭据后可能陈旧 | 监听应用配置、同步配置、图片表单偏好、storage、pageshow 和可见性恢复事件重新计算 | 多窗口极端时序仍以页面恢复或 storage 事件最终一致 |
-| 筛选后卡片位置变化可能重复记录曝光 | 会话去重键改为目录版本与专题 ID，不再包含 position | 仍需生产口径抽查确认预期曝光定义 |
-| 匿名事件在同一毫秒写入时导出顺序不稳定 | 导出按 `createdAt` 与 SQLite `rowid` 排序 | 多实例集中导出仍需外部汇聚层 |
-| 复制权限被浏览器拒绝时没有反馈 | 增加双语失败状态和 live region | 用户仍需手动选择文本复制 |
-| 首次失败被错误映射到 5 秒退避档 | 失败计数递增后按上一档索引计算，首次失败稳定等待 1 秒 | 生产网络质量和最终投递率仍需持续观测 |
-| 长退避事件仍每 750ms 空唤醒 | 调度器改为直接计算最早 `nextAttemptAt`，只有已到期事件使用 750ms 合批延迟 | 浏览器后台计时器仍受平台节流策略影响，但不会主动高频轮询 |
-| 未来 recipe 的合成空槽位被显示为“无需图片” | 输入摘要只读取可执行案例；全只读专题显示“输入要求未知”，任何具体图片类型筛选都会排除 | 正式 schema 升级仍需继续维护扩展 wire 协商 |
-| 当前非默认供应商实例有凭据却被误判未配置 | 可用性判断显式读取表单 `providerInstanceId`，并在其他兼容实例中检查凭据 | 供应商实例和模型目录的大规模组合仍需生产样本验证 |
-| 17–32 张媒体的未来案例缓存往返后被丢弃 | 只读归一化保留最多 32 个展示媒体，但始终使用空执行槽位并保持 `unsupportedRecipeVersion` | 当前可执行 v1 recipe 继续保持 16 张输入上限 |
-| 搜索框看似即时筛选，实际必须按 Enter 才生效 | 输入草稿立即参与结果过滤，并在 300ms 后防抖同步 URL；提交立即同步，结果数量在移动端持续可见 | 极短时间内的浏览器后退/前进仍由 Next Router 最终状态收敛 |
+| 问题                                                      | 解决办法                                                                                       | 剩余风险                                                          |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 专题卡状态在用户修改模型或凭据后可能陈旧                  | 监听应用配置、同步配置、图片表单偏好、storage、pageshow 和可见性恢复事件重新计算               | 多窗口极端时序仍以页面恢复或 storage 事件最终一致                 |
+| 筛选后卡片位置变化可能重复记录曝光                        | 会话去重键改为目录版本与专题 ID，不再包含 position                                             | 仍需生产口径抽查确认预期曝光定义                                  |
+| 匿名事件在同一毫秒写入时导出顺序不稳定                    | 导出按 `createdAt` 与 SQLite `rowid` 排序                                                      | 多实例集中导出仍需外部汇聚层                                      |
+| 复制权限被浏览器拒绝时没有反馈                            | 增加双语失败状态和 live region                                                                 | 用户仍需手动选择文本复制                                          |
+| 首次失败被错误映射到 5 秒退避档                           | 失败计数递增后按上一档索引计算，首次失败稳定等待 1 秒                                          | 生产网络质量和最终投递率仍需持续观测                              |
+| 长退避事件仍每 750ms 空唤醒                               | 调度器改为直接计算最早 `nextAttemptAt`，只有已到期事件使用 750ms 合批延迟                      | 浏览器后台计时器仍受平台节流策略影响，但不会主动高频轮询          |
+| 未来 recipe 的合成空槽位被显示为“无需图片”                | 输入摘要只读取可执行案例；全只读专题显示“输入要求未知”，任何具体图片类型筛选都会排除           | 正式 schema 升级仍需继续维护扩展 wire 协商                        |
+| 当前非默认供应商实例有凭据却被误判未配置                  | 可用性判断显式读取表单 `providerInstanceId`，并在其他兼容实例中检查凭据                        | 供应商实例和模型目录的大规模组合仍需生产样本验证                  |
+| 17–32 张媒体的未来案例缓存往返后被丢弃                    | 只读归一化保留最多 32 个展示媒体，但始终使用空执行槽位并保持 `unsupportedRecipeVersion`        | 当前可执行 v1 recipe 继续保持 16 张输入上限                       |
+| 搜索框看似即时筛选，实际必须按 Enter 才生效               | 输入草稿立即参与结果过滤，并在 300ms 后防抖同步 URL；提交立即同步，结果数量在移动端持续可见    | 极短时间内的浏览器后退/前进仍由 Next Router 最终状态收敛          |
 | 搜索后立刻切换排序、进入专题或重置可能与延迟 URL 写入竞争 | 所有筛选更新使用当前草稿关键词；进入专题时停止目录搜索同步；重置同时取消计时器、清空草稿和 URL | 已用 390×844 真实浏览器复验输入、组合排序、直接进入专题和重置路径 |
-| Rust `rkyv` 间接依赖出现高危公告 | 锁定升级 `tauri-plugin-log 2.8.0 -> 2.9.0`，移除 `byte-unit`、`rust_decimal` 和 `rkyv` 依赖链 | `quick-xml 0.39.2` 两项公告仍受 Tauri / Wayland 与 Rust MSRV 约束 |
+| Rust `rkyv` 间接依赖出现高危公告                          | 锁定升级 `tauri-plugin-log 2.8.0 -> 2.9.0`，移除 `byte-unit`、`rust_decimal` 和 `rkyv` 依赖链  | `quick-xml 0.39.2` 两项公告仍受 Tauri / Wayland 与 Rust MSRV 约束 |
 
 ### 验证与发布状态
 
-| 检查项 | 命令或场景 | 结果 |
-| ------ | ---------- | ---- |
-| 定向逻辑与权限测试 | `rtk npm run test -- src/app/api/admin/showcase-metrics/route.test.ts src/lib/showcase-analytics-client.test.ts src/lib/showcase-availability.test.ts src/lib/showcase-client.test.ts src/lib/showcase.test.ts` | 5 个文件、35 项通过；覆盖首次退避、最早到期调度、Beacon false 回退、监听清理、供应商实例、未来 recipe 媒体往返和 owner/admin/viewer 导出权限 |
-| TypeScript | `rtk npm run typecheck` | 通过 |
-| 定向 ESLint | `rtk npx eslint <本轮专题文件>` | 通过，无 issue |
-| 差异检查 | `rtk git diff --check` | 通过 |
-| 前台目录 | 390×844 浅色，搜索“老照片”、`sort=easy`、输入类型与任务分类；模拟 API 503 使用未来 recipe 缓存 | `scrollWidth = clientWidth = 390`；URL 状态正确；只读专题显示“输入要求未知”，选择“无需图片”后被排除；模拟 503 产生一条预期网络错误，恢复真实 API 后 Console 0 error / 0 warning |
-| 案例详情 | 1280×800 深色，老照片案例、提示词复制 | 无横向溢出；复制后 live region 显示“提示词已复制”；Console 0 error / 0 warning |
-| 搜索交互复验 | 390×844，直接输入“老照片”、等待 URL 同步、切换 `sort=easy`、输入后立即进入专题、无结果后重置 | 输入后无需 Enter 即从 6 项缩为 1 项；约 300ms 后 URL 写入 `q`；排序保留查询；延迟写入不会覆盖专题导航；重置恢复 6 项且无横向溢出 |
-| 前后对比键盘 | 1280×800 深色、reduced-motion；切换滑杆并按 `ArrowRight` | 原生 range 从 50 变为 51，`aria-label` 和 `aria-valuetext` 同步更新 |
-| Rust 依赖收口 | `rtk cargo update --manifest-path src-tauri/Cargo.toml -p tauri-plugin-log --precise 2.9.0`；`rtk npm run rust:test`；`rtk npm run rust:clippy`；`rtk npm run rust:audit` | `rkyv` 已移除；83 项测试与 Clippy 通过；audit 只剩 `quick-xml 0.39.2` 两项漏洞和 21 项既有允许 warning |
-| 后台登录态 | 独立临时 SQLite、临时 owner、390×844；双语分类、保存、刷新回读、匿名导出、审计接口 | 两条分类完整 round-trip；导出下载 `showcase-analytics-30d.ndjson`；审计出现 `showcase_analytics_export`；临时服务与数据库已删除 |
-| 截图 | `.playwright-cli/showcase-topics-390-light-v21510.png`、`.playwright-cli/showcase-case-1280-dark-v21510.png`、`.playwright-cli/showcase-admin-categories.png` | 已保存为本轮浏览器证据，不纳入发布包 |
+| 检查项             | 命令或场景                                                                                                                                                                                                      | 结果                                                                                                                                                                            |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 定向逻辑与权限测试 | `rtk npm run test -- src/app/api/admin/showcase-metrics/route.test.ts src/lib/showcase-analytics-client.test.ts src/lib/showcase-availability.test.ts src/lib/showcase-client.test.ts src/lib/showcase.test.ts` | 5 个文件、35 项通过；覆盖首次退避、最早到期调度、Beacon false 回退、监听清理、供应商实例、未来 recipe 媒体往返和 owner/admin/viewer 导出权限                                    |
+| TypeScript         | `rtk npm run typecheck`                                                                                                                                                                                         | 通过                                                                                                                                                                            |
+| 定向 ESLint        | `rtk npx eslint <本轮专题文件>`                                                                                                                                                                                 | 通过，无 issue                                                                                                                                                                  |
+| 差异检查           | `rtk git diff --check`                                                                                                                                                                                          | 通过                                                                                                                                                                            |
+| 前台目录           | 390×844 浅色，搜索“老照片”、`sort=easy`、输入类型与任务分类；模拟 API 503 使用未来 recipe 缓存                                                                                                                  | `scrollWidth = clientWidth = 390`；URL 状态正确；只读专题显示“输入要求未知”，选择“无需图片”后被排除；模拟 503 产生一条预期网络错误，恢复真实 API 后 Console 0 error / 0 warning |
+| 案例详情           | 1280×800 深色，老照片案例、提示词复制                                                                                                                                                                           | 无横向溢出；复制后 live region 显示“提示词已复制”；Console 0 error / 0 warning                                                                                                  |
+| 搜索交互复验       | 390×844，直接输入“老照片”、等待 URL 同步、切换 `sort=easy`、输入后立即进入专题、无结果后重置                                                                                                                    | 输入后无需 Enter 即从 6 项缩为 1 项；约 300ms 后 URL 写入 `q`；排序保留查询；延迟写入不会覆盖专题导航；重置恢复 6 项且无横向溢出                                                |
+| 前后对比键盘       | 1280×800 深色、reduced-motion；切换滑杆并按 `ArrowRight`                                                                                                                                                        | 原生 range 从 50 变为 51，`aria-label` 和 `aria-valuetext` 同步更新                                                                                                             |
+| Rust 依赖收口      | `rtk cargo update --manifest-path src-tauri/Cargo.toml -p tauri-plugin-log --precise 2.9.0`；`rtk npm run rust:test`；`rtk npm run rust:clippy`；`rtk npm run rust:audit`                                       | `rkyv` 已移除；83 项测试与 Clippy 通过；audit 只剩 `quick-xml 0.39.2` 两项漏洞和 21 项既有允许 warning                                                                          |
+| 后台登录态         | 独立临时 SQLite、临时 owner、390×844；双语分类、保存、刷新回读、匿名导出、审计接口                                                                                                                              | 两条分类完整 round-trip；导出下载 `showcase-analytics-30d.ndjson`；审计出现 `showcase_analytics_export`；临时服务与数据库已删除                                                 |
+| 截图               | `.playwright-cli/showcase-topics-390-light-v21510.png`、`.playwright-cli/showcase-case-1280-dark-v21510.png`、`.playwright-cli/showcase-admin-categories.png`                                                   | 已保存为本轮浏览器证据，不纳入发布包                                                                                                                                            |
 
 本节在发布过程中持续更新。前端与后台专项验收已经完成；完整质量门、commit/tag、Action 资产和 129 生产结果见后续 `v2.15.10` 发布报告。总体状态继续为 **部分完成 (Partial)**，剩余原因是默认真实案例资产、5 名非专业用户研究、多实例集中分析和桌面/Android 安装级证据，而不是本轮 UI 或浏览器专项缺口。
 
 ## v2.15.11 媒体生成证据与人工审核增量（2026-08-05）
 
-| 请求目标 | 实际结果 | 主要证据 | 状态 |
-| -------- | -------- | -------- | ---- |
+| 请求目标               | 实际结果                                                                                                                            | 主要证据                                                                                                     | 状态               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------ |
 | 真实案例的内部审计准备 | 托管媒体新增授权/自有源图与 AI 生成结果来源类型；AI 结果结构化记录模型 ID、配方版本、生成时间、候选次数、审核说明、审核人和审核时间 | `src/lib/server/schema.ts`、`src/lib/server/showcase/media.ts`、`src/app/api/admin/showcase-assets/route.ts` | 已完成 (Completed) |
-| 发布可信门 | AI 结果上传必须明确人工批准；发布前复查会拒绝缺少生成证据、审核状态或审核人/时间的记录 | `validateManagedAssetFiles`、媒体测试中的 pending 篡改回归 | 已完成 (Completed) |
-| 旧 SQLite 兼容 | 老版 `showcase_assets` 表自动补齐安全默认值，保留来源、授权和中英文 alt，不伪造历史 AI 审核信息 | `media-provenance-migration.test.ts` | 已完成 (Completed) |
-| 后台体验 | 来源选择后渐进展示 AI 证据字段；浅色/深色、移动/桌面均无横向溢出，未满足字段时上传按钮禁用 | Playwright 临时独立 SQLite：390×844、1440×900、reduced-motion | 已完成 (Completed) |
+| 发布可信门             | AI 结果上传必须明确人工批准；发布前复查会拒绝缺少生成证据、审核状态或审核人/时间的记录                                              | `validateManagedAssetFiles`、媒体测试中的 pending 篡改回归                                                   | 已完成 (Completed) |
+| 旧 SQLite 兼容         | 老版 `showcase_assets` 表自动补齐安全默认值，保留来源、授权和中英文 alt，不伪造历史 AI 审核信息                                     | `media-provenance-migration.test.ts`                                                                         | 已完成 (Completed) |
+| 后台体验               | 来源选择后渐进展示 AI 证据字段；浅色/深色、移动/桌面均无横向溢出，未满足字段时上传按钮禁用                                          | Playwright 临时独立 SQLite：390×844、1440×900、reduced-motion                                                | 已完成 (Completed) |
 
 ### 本轮问题与解决
 
-| 问题 | 解决办法 | 剩余风险 |
-| ---- | -------- | -------- |
+| 问题                                                      | 解决办法                                                                             | 剩余风险                                                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | 媒体库原有来源/授权/checksum 不能证明 AI 案例来自哪次生成 | 增加来源类型和生成证据字段；审核批准时记录当前管理员与时间，并在发布健康检查再次校验 | 默认 24 个案例尚未替换为真实 AI 输入/输出，不能据此宣称内容已完成 |
-| 旧数据库没有新字段 | 使用幂等 `ALTER TABLE` 迁移并以 `licensed-source` / `not-required` 作为安全默认值 | 旧记录不会获得虚假的生成/审核历史；需要运营重新上传真实 AI 结果 |
+| 旧数据库没有新字段                                        | 使用幂等 `ALTER TABLE` 迁移并以 `licensed-source` / `not-required` 作为安全默认值    | 旧记录不会获得虚假的生成/审核历史；需要运营重新上传真实 AI 结果   |
 
 ### 本轮验证
 
-| 检查项 | 命令或场景 | 结果 |
-| ------ | ---------- | ---- |
-| 定向媒体测试 | `rtk npm run test -- src/lib/server/showcase/media.test.ts src/lib/server/showcase/media-provenance-migration.test.ts` | 2 个文件、9 项通过 |
-| 全量前端质量门 | `rtk npm test`；`rtk npm run typecheck`；`rtk npm run lint -- --no-cache` | 127 个测试文件、1132 项通过；类型检查和 ESLint 通过 |
-| 后台真实上传 | 临时数据库、AI 来源、模型/配方/时间/候选/审核字段、上传后 SQLite 回读 | `201`；记录包含 `ai-generated`、模型 ID、配方版本、候选次数、`approved`、审核人和审核时间 |
-| 主题/尺寸/动效 | 390×844 浅色；1440×900 深色；reduced-motion | body/dialog 无横向溢出；持续动画 0；Console 0 error / 0 warning |
+| 检查项         | 命令或场景                                                                                                             | 结果                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 定向媒体测试   | `rtk npm run test -- src/lib/server/showcase/media.test.ts src/lib/server/showcase/media-provenance-migration.test.ts` | 2 个文件、9 项通过                                                                        |
+| 全量前端质量门 | `rtk npm test`；`rtk npm run typecheck`；`rtk npm run lint -- --no-cache`                                              | 127 个测试文件、1132 项通过；类型检查和 ESLint 通过                                       |
+| 后台真实上传   | 临时数据库、AI 来源、模型/配方/时间/候选/审核字段、上传后 SQLite 回读                                                  | `201`；记录包含 `ai-generated`、模型 ID、配方版本、候选次数、`approved`、审核人和审核时间 |
+| 主题/尺寸/动效 | 390×844 浅色；1440×900 深色；reduced-motion                                                                            | body/dialog 无横向溢出；持续动画 0；Console 0 error / 0 warning                           |
 
 本增量只完成了“真实内容可以被可信记录和审核”的代码基础，不等同于已经生成 24 个真实案例或完成真人用户研究；总体状态保持 **部分完成 (Partial)**。
 
 ## v2.15.11 深链、缓存与部署可靠性增量（2026-08-04）
 
-| 请求目标 | 实际结果 | 主要证据 | 状态 |
-| -------- | -------- | -------- | ---- |
-| 静态深链可靠性 | `/topics` 首帧不读取 query；挂载后再消费专题、案例和筛选参数，中文/英文直接刷新均无 React #418 | `showcase-topics-page.tsx`、`app-language-provider.tsx`、SSR 测试和 production Playwright | 已完成 (Completed) |
-| 筛选后返回 | 当前关键词、输入类型、标签、分类和排序进入受限 `return`；专题、案例、相关专题、下一案例与失效状态均保留上下文 | navigation 单测和浏览器往返 | 已完成 (Completed) |
-| 未来 recipe 隔离 | 可执行与只读案例使用严格联合类型；只读案例不含 `recipe`，未知字段不进入缓存、后台或工作台 | `showcase.ts`、public/cache/workbench 测试 | 已完成 (Completed) |
-| 跨版本离线缓存 | 严格 v1 与扩展 v2 分离；无 contract 的 `v2.15.10` 扩展缓存会清洗后迁移新 key | `showcase-client.ts`、离线迁移测试 | 已完成 (Completed) |
-| 129 认证保护 | 构建环境删除认证键；部署环境可继承远端受控 secret，切换前后验证后台认证边界 | `deploy-129.sh`、`--check-build-env`、`--check-env` | 已完成 (Completed) |
-| 完整产品闭环 | 真实案例、5 名新手测试、多实例集中分析、四平台安装级验收仍缺证据 | 需求第 29/31 章 | 部分完成 (Partial) |
+| 请求目标         | 实际结果                                                                                                      | 主要证据                                                                                  | 状态               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------ |
+| 静态深链可靠性   | `/topics` 首帧不读取 query；挂载后再消费专题、案例和筛选参数，中文/英文直接刷新均无 React #418                | `showcase-topics-page.tsx`、`app-language-provider.tsx`、SSR 测试和 production Playwright | 已完成 (Completed) |
+| 筛选后返回       | 当前关键词、输入类型、标签、分类和排序进入受限 `return`；专题、案例、相关专题、下一案例与失效状态均保留上下文 | navigation 单测和浏览器往返                                                               | 已完成 (Completed) |
+| 未来 recipe 隔离 | 可执行与只读案例使用严格联合类型；只读案例不含 `recipe`，未知字段不进入缓存、后台或工作台                     | `showcase.ts`、public/cache/workbench 测试                                                | 已完成 (Completed) |
+| 跨版本离线缓存   | 严格 v1 与扩展 v2 分离；无 contract 的 `v2.15.10` 扩展缓存会清洗后迁移新 key                                  | `showcase-client.ts`、离线迁移测试                                                        | 已完成 (Completed) |
+| 129 认证保护     | 构建环境删除认证键；部署环境可继承远端受控 secret，切换前后验证后台认证边界                                   | `deploy-129.sh`、`--check-build-env`、`--check-env`                                       | 已完成 (Completed) |
+| 完整产品闭环     | 真实案例、5 名新手测试、多实例集中分析、四平台安装级验收仍缺证据                                              | 需求第 29/31 章                                                                           | 部分完成 (Partial) |
 
 ### 本轮问题与解决
 
-| 问题 | 解决办法 | 剩余风险 |
-| ---- | -------- | -------- |
-| 静态 HTML 只能渲染目录，浏览器首帧按 query 渲染详情 | query 延迟到 hydration 后消费 | 挂载前短暂显示静态目录壳，为静态导出一致性的预期行为 |
-| 保存英文后初始化脚本改写文档语言，Provider 首帧也按英文渲染 | React 首帧固定默认语言，effect 再读取用户配置 | 存在一次 hydration 后语言切换，但配置不会丢失且无 mismatch |
-| 未来案例仍保存合成 v1 recipe | 只读类型禁止 `recipe`，归一化只保留安全提示词 | 未来正式 catalog v2 仍需独立协议设计 |
-| 上一版扩展缓存与严格 v1 共用 key | 新增扩展 key、contract 标记和无标记旧缓存迁移 | 旧 key 兼容路径后续可按版本周期移除 |
-| 生产 `.env` 被 release 配置覆盖后后台 500 | 远端受控 secret 继承、构建隔离、非空值检查，并严格要求后台入口 307/308 到登录页 | 首次部署仍需显式提供认证键 |
+| 问题                                                        | 解决办法                                                                        | 剩余风险                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 静态 HTML 只能渲染目录，浏览器首帧按 query 渲染详情         | query 延迟到 hydration 后消费                                                   | 挂载前短暂显示静态目录壳，为静态导出一致性的预期行为       |
+| 保存英文后初始化脚本改写文档语言，Provider 首帧也按英文渲染 | React 首帧固定默认语言，effect 再读取用户配置                                   | 存在一次 hydration 后语言切换，但配置不会丢失且无 mismatch |
+| 未来案例仍保存合成 v1 recipe                                | 只读类型禁止 `recipe`，归一化只保留安全提示词                                   | 未来正式 catalog v2 仍需独立协议设计                       |
+| 上一版扩展缓存与严格 v1 共用 key                            | 新增扩展 key、contract 标记和无标记旧缓存迁移                                   | 旧 key 兼容路径后续可按版本周期移除                        |
+| 生产 `.env` 被 release 配置覆盖后后台 500                   | 远端受控 secret 继承、构建隔离、非空值检查，并严格要求后台入口 307/308 到登录页 | 首次部署仍需显式提供认证键                                 |
 
 ### 本轮验证
 
-| 检查项 | 命令或场景 | 结果 |
-| ------ | ---------- | ---- |
-| 类型、规范与测试 | `rtk npm run typecheck`；`rtk npm run lint -- --no-cache`；`rtk npm test`；`rtk git diff --check` | 全部通过；126 个测试文件、1128 项 |
-| Web / Desktop | `rtk npm run build`；`rtk npm run build:desktop` | 通过；`/topics` 保持静态导出 |
-| Rust / 安全 | Rust 83 项、Clippy、npm audit、secret scan、release env check | 除既有两项 `quick-xml` 公告外通过 |
-| 缓存与 wire | 严格 v1 / 扩展 v2 API、本地缓存双 key、无标记旧缓存离线迁移 | 分类字段按 header 分流；缓存迁移保留 ETag 和目录 |
-| 浏览器 | 1440×900 深色、1280 桌面、390×844 浅色；中英文、reduced-motion、键盘、Guide | 无横向溢出；0 个持续动画；Console 0 error / 0 warning；无生成请求 |
-| 部署环境 | `bash -n`、空/纯空白/有效值检查、正常及显式 dummy secret 的 `--check-build-env`、`--check-env`、生产后台路由 | 构建端无生产认证键；最终环境为非空值且输出脱敏；`/admin` 与 `/admin/showcases` 均 307 → `/admin/login` |
+| 检查项           | 命令或场景                                                                                                   | 结果                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| 类型、规范与测试 | `rtk npm run typecheck`；`rtk npm run lint -- --no-cache`；`rtk npm test`；`rtk git diff --check`            | 全部通过；126 个测试文件、1128 项                                                                      |
+| Web / Desktop    | `rtk npm run build`；`rtk npm run build:desktop`                                                             | 通过；`/topics` 保持静态导出                                                                           |
+| Rust / 安全      | Rust 83 项、Clippy、npm audit、secret scan、release env check                                                | 除既有两项 `quick-xml` 公告外通过                                                                      |
+| 缓存与 wire      | 严格 v1 / 扩展 v2 API、本地缓存双 key、无标记旧缓存离线迁移                                                  | 分类字段按 header 分流；缓存迁移保留 ETag 和目录                                                       |
+| 浏览器           | 1440×900 深色、1280 桌面、390×844 浅色；中英文、reduced-motion、键盘、Guide                                  | 无横向溢出；0 个持续动画；Console 0 error / 0 warning；无生成请求                                      |
+| 部署环境         | `bash -n`、空/纯空白/有效值检查、正常及显式 dummy secret 的 `--check-build-env`、`--check-env`、生产后台路由 | 构建端无生产认证键；最终环境为非空值且输出脱敏；`/admin` 与 `/admin/showcases` 均 307 → `/admin/login` |
 
 详细提交、版本、Action、Release 资产和生产部署证据见 [v2.15.11 发布与构建报告](./2026-08-04-release-2.15.11.md)。`v2.15.11` 已于 2026-08-05 正式发布并部署；代码、构建、产物和生产切换均达到本轮发布门槛，产品层剩余项需要真实素材、受试者、集中基础设施或安装设备，不能由占位内容或 CI 结果替代。
 
 ### 发布完成证据
 
-| 检查项 | 最终结果 | 状态 |
-| ------ | -------- | ---- |
-| commit / tag / push | 发布提交 `d2c4af7`；annotated tag `v2.15.11` 解引用到该提交；旧版 `mawk` 兼容修复 `4dbb527` 已包含在远端 `master`，后续文档提交不改写 tag | 已完成 (Completed) |
-| GitHub Actions | Run [`30966310596`](https://github.com/xxxily/gpt-image-playground/actions/runs/30966310596) 的校验、Release 准备、Android、macOS、Windows、Linux 和正式发布共 7 个 jobs 全部成功 | 已完成 (Completed) |
-| GitHub Release | [v2.15.11](https://github.com/xxxily/gpt-image-playground/releases/tag/v2.15.11) 为正式版、非 prerelease，共 15 个 uploaded 资产 | 已完成 (Completed) |
-| 129 生产 | `current` 指向 `20260805100205-v2.15.11`；systemd `active`；Node `20.20.2`；`161-docker` / `linux-glibc228`；专题媒体新增 schema 字段 9/9 存在 | 已完成 (Completed) |
-| 线上行为 | `/`、`/topics`、老照片案例为 200；`/admin`、`/admin/showcases` 为 307 → `/admin/login`；根页 no-cache；专题 API ETag 条件请求 304 | 已完成 (Completed) |
-| 回滚与构建清理 | `v2.15.10` release 目录保留；161 source 无 `.env.production` / `.env.local`，无残留 Debian 构建容器 | 已完成 (Completed) |
-| 完整产品闭环 | 24 个真实案例、5 名非专业用户测试、多实例集中分析和四平台安装级验收仍未完成 | 部分完成 (Partial) |
+| 检查项              | 最终结果                                                                                                                                                                          | 状态               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| commit / tag / push | 发布提交 `d2c4af7`；annotated tag `v2.15.11` 解引用到该提交；旧版 `mawk` 兼容修复 `4dbb527` 已包含在远端 `master`，后续文档提交不改写 tag                                         | 已完成 (Completed) |
+| GitHub Actions      | Run [`30966310596`](https://github.com/xxxily/gpt-image-playground/actions/runs/30966310596) 的校验、Release 准备、Android、macOS、Windows、Linux 和正式发布共 7 个 jobs 全部成功 | 已完成 (Completed) |
+| GitHub Release      | [v2.15.11](https://github.com/xxxily/gpt-image-playground/releases/tag/v2.15.11) 为正式版、非 prerelease，共 15 个 uploaded 资产                                                  | 已完成 (Completed) |
+| 129 生产            | `current` 指向 `20260805100205-v2.15.11`；systemd `active`；Node `20.20.2`；`161-docker` / `linux-glibc228`；专题媒体新增 schema 字段 9/9 存在                                    | 已完成 (Completed) |
+| 线上行为            | `/`、`/topics`、老照片案例为 200；`/admin`、`/admin/showcases` 为 307 → `/admin/login`；根页 no-cache；专题 API ETag 条件请求 304                                                 | 已完成 (Completed) |
+| 回滚与构建清理      | `v2.15.10` release 目录保留；161 source 无 `.env.production` / `.env.local`，无残留 Debian 构建容器                                                                               | 已完成 (Completed) |
+| 完整产品闭环        | 24 个真实案例、5 名非专业用户测试、多实例集中分析和四平台安装级验收仍未完成                                                                                                       | 部分完成 (Partial) |
+
+## v2.15.12 默认专题初始化与运营界面增量（2026-08-05）
+
+| 请求目标                    | 实际结果                                                                                                                                                             | 主要证据                                                                       | 状态               |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------ |
+| 线上后台可管理 6 个默认专题 | 后台目录读取前幂等补齐缺失的内置专题，创建为可编辑草稿；不覆盖同 ID 的管理员修改、发布、下线或归档状态                                                               | `src/lib/server/showcase/admin.ts`、`showcase.test.ts`、隔离 SQLite 浏览器会话 | 已完成 (Completed) |
+| Slug 冲突与重复读取安全     | 重复调用不新增记录；自定义专题占用默认 Slug 时保留自定义记录，并为内置专题使用确定性 `-builtin` 后缀                                                                 | 服务端回归测试                                                                 | 已完成 (Completed) |
+| 首页专题区不挤压结果        | “实用专题”默认折叠，保留展开和“查看全部专题”；折叠态不加载远端目录或记录专题曝光                                                                                     | `showcase-section.tsx`、中英文 i18n、浏览器验证                                | 已完成 (Completed) |
+| 后台专题目录与草稿布局      | 目录改为上方全宽网格，编辑器位于下方全宽区域；基础、双语、运营和案例按层级展开                                                                                       | `showcase-admin-client.tsx`、390×844 深色、1440×900 浅色截图                   | 已完成 (Completed) |
+| 专题封面、占位与案例图片    | 使用用户明确授权的自定义 OpenAI 兼容端点和 `gpt-image-2` 生成 24 张案例母图；裁切为 56 张案例输入/结果图，并由结果图合成 6 张专题封面；全部生成主图和缩略图均为 WebP | `public/showcases/builtin/*`、`default-showcases.test.ts`、本地视觉联系表      | 已完成 (Completed) |
+| 小版本、Action 与 129 部署  | 功能代码未在图片与最终质量门完成前提前发布                                                                                                                           | 发布计划                                                                       | 待完成 (Pending)   |
+
+### 本轮问题与解决
+
+| 问题                                                                                                            | 解决办法                                                                                                                                                         | 剩余风险                                                                            |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 公开端回退代码内置目录，后台只查 SQLite，导致线上前台 6 条而后台 0 条                                           | 在唯一的后台目录读取入口执行幂等物化，并以服务端测试覆盖首次、重复、部分已有、归档和 Slug 冲突                                                                   | 已初始化草稿不会被未来代码内置内容静默覆盖；后续内置模板升级需要显式的恢复/升级机制 |
+| 左右双栏让目录产生空白并压缩主表单                                                                              | 改为上下全宽布局，目录使用响应式网格                                                                                                                             | 专题数显著增加后仍需分页或虚拟化；当前有界滚动适合 6 个默认专题                     |
+| 专题字段与案例字段一次平铺过长                                                                                  | 基础设置默认展开，双语和运营分组、各案例配方按需展开；切换草稿时重置分组状态                                                                                     | 原生 `details` 状态不跨刷新保存，符合后台临时编辑预期                               |
+| 官方图片 CLI 只接受 `b64_json`，兼容端点实际返回临时 URL；本机透明代理又把 CDN 域名解析到保留地址，TLS 下载超时 | 保持 Codex 和项目配置不变，改用用户已授权的直接 HTTP 请求；响应只写临时目录，使用公开 DNS 查询到的真实 CDN 地址对单次下载做 `--resolve`，下载后立即删除响应 JSON | 外部端点和 CDN 仍可能波动；本轮以并发 2、有限重试和断点跳过控制风险                 |
+| 兼容端点对 `1536x1024` 连续返回 500                                                                             | 中止无效批次，统一改为稳定的 1024×1024 方形母图，并为单输入、多输入和四输入案例分别设计上下、三格和 2×2 布局                                                     | 首版素材以卡片和案例说明为目标，不作为高分辨率商业成片                              |
+| 首版素材容易被误解为真实 recipe 执行结果                                                                        | 内容提示和报告继续标记为 AI 生成示意素材；真实配方运行、生成证据和托管媒体人工批准仍保留为独立验收项                                                             | 后续管理员替换素材时仍需走来源与审核字段                                            |
+
+### 素材生成与压缩证据
+
+| 项目           | 结果                                                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 模型与请求     | `gpt-image-2`；24 个 1024×1024、`quality=low` 案例母图；未修改 Codex、应用或系统代理配置，未保存 API Key 和带凭证下载 URL                                                                                           |
+| 最终提示词框架 | 每个案例使用“明确面板布局 + 具体无品牌场景 + 输入状态 + 同主体结果状态 + 身份/结构/构图不变量 + 禁止文字、Logo、品牌和水印”；24 个转换方向与 `DEFAULT_SHOWCASE_CATALOG` 的案例标题、objective 和 recipe prompt 对齐 |
+| 裁切与压缩     | 母图按 `vertical2`、`top2-bottom1` 或 `grid4` 裁成独立资产；主图 768×768 WebP（质量 78），缩略图 384×384 WebP（质量 68）；封面质量 80/70                                                                            |
+| 数量与体积     | 62 张主图 + 62 张缩略图，共 124 个 WebP，目录约 2.2 MB；24 张母图不进入仓库                                                                                                                                         |
+| 人工检查       | 先检查 24 张母图联系表，再检查 62 张最终主图联系表；未见明显文字、水印、品牌标记或错位裁切，输入/结果关系可识别                                                                                                     |
+| 自动回归       | `default-showcases.test.ts` 新增文件存在性测试；目录契约引用的每个主图和缩略图必须实际存在                                                                                                                          |
+
+### 已执行验证
+
+| 检查项           | 命令或场景                                                                                                                                              | 结果                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 服务端与目录回归 | `rtk npm run test -- src/lib/server/showcase/showcase.test.ts src/lib/default-showcases.test.ts src/lib/showcase.test.ts src/lib/i18n/messages.test.ts` | 4 个文件、34 项通过                                                                             |
+| 类型与规范       | `rtk npm run typecheck`；`rtk npx eslint <本轮文件>`；`rtk git diff --check`                                                                            | 全部通过                                                                                        |
+| 首页折叠         | 1440 桌面浅色、390×844 移动深色；展开/收起、查看全部、尺寸和 overflow                                                                                   | 默认折叠；桌面约 84px、移动约 132px；`scrollWidth === clientWidth`；Console 0 error / 0 warning |
+| 后台初始化与布局 | 空隔离 SQLite、临时 owner；390×844 深色、1440×900 浅色                                                                                                  | 首次显示 6 个 `draft`；目录和编辑器同宽堆叠；基础展开、其他分组关闭；无横向溢出                 |
+| SQLite 实态      | 只读查询 `showcase_topics`                                                                                                                              | 6 条记录，全部为 `draft`；公开 API 仍返回 `source=builtin`                                      |
+| 媒体文件契约     | `rtk npm run test -- --run src/lib/default-showcases.test.ts`；ImageMagick 尺寸/格式汇总                                                                | 8 项通过；62 张 768×768 WEBP + 62 张 384×384 WEBP；目录约 2.2 MB                                |
+| 素材视觉检查     | 24 张母图联系表；62 张最终主图联系表                                                                                                                    | 面板布局、裁切、输入/结果关系、封面拼图和禁止项通过人工抽检                                     |
+
+本节将在全量质量门、`v2.15.12` tag/Actions 和 129 生产验证后继续更新。当前总体状态为 **部分完成 (Partial)**；本轮四项产品改动已落盘，发布收尾仍待执行。

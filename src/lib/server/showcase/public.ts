@@ -93,6 +93,9 @@ export function toPublicShowcaseWireCatalog(
                               thumbnailUrl:
                                   asset.thumbnailUrl ?? `/api/showcase-media/${managedAssetId}?variant=thumbnail`
                           }
+                        : {}),
+                    ...(!managedAssetId && options.supportsExtendedCases && asset.thumbnailUrl
+                        ? { thumbnailUrl: asset.thumbnailUrl }
                         : {})
                 };
             })

@@ -47,12 +47,16 @@ describe('showcase public catalog wire format', () => {
             supportsExtendedCases: true
         });
         const asset = wire.assets.find((candidate) => candidate.id === catalog.topics[0]?.coverAssetId);
+        const builtinAsset = wire.assets.find(
+            (candidate) => candidate.kind === 'remote-image' && candidate.url.startsWith('/showcases/builtin/')
+        ) as ShowcaseRemoteAsset | undefined;
 
         expect(asset).toMatchObject({
             url: 'https://content.example/api/showcase-media/media_0123456789abcdef0123456789abcdef',
             thumbnailUrl:
                 'https://content.example/api/showcase-media/media_0123456789abcdef0123456789abcdef?variant=thumbnail'
         });
+        expect(builtinAsset?.thumbnailUrl).toMatch(/^\/showcases\/builtin\/[a-z0-9-]+-thumb\.webp$/u);
         expect(
             normalizeShowcaseCatalog(wire, {
                 allowUnsupportedRecipeVersions: true,
@@ -63,8 +67,11 @@ describe('showcase public catalog wire format', () => {
     });
 
     it('keeps managed identifiers on local HTTP so the current client can validate relative URLs', () => {
-        const wire = toPublicShowcaseWireCatalog(managedCatalog(), 'http://localhost:3000');
-        const asset = wire.assets.find((candidate) => candidate.kind === 'remote-image') as ShowcaseRemoteAsset;
+        const catalog = managedCatalog();
+        const wire = toPublicShowcaseWireCatalog(catalog, 'http://localhost:3000');
+        const asset = wire.assets.find(
+            (candidate) => candidate.id === catalog.topics[0]?.coverAssetId
+        ) as ShowcaseRemoteAsset;
 
         expect(asset.managedAssetId).toBe('media_0123456789abcdef0123456789abcdef');
         expect(asset.thumbnailUrl).toBe('/api/showcase-media/media_0123456789abcdef0123456789abcdef?variant=thumbnail');

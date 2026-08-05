@@ -111,8 +111,29 @@ function clone<T>(value: T): T {
 }
 
 describe('showcase item normalizers', () => {
-    it('accepts safe placeholder and public HTTPS image assets', () => {
+    it('accepts safe placeholder, built-in static, and public HTTPS image assets', () => {
         expect(normalizeShowcaseAsset(placeholderAsset('placeholder'))).toEqual(placeholderAsset('placeholder'));
+        expect(
+            normalizeShowcaseAsset({
+                id: 'builtin-image',
+                kind: 'remote-image',
+                alt: localized('内置图片示例', 'Built-in image sample'),
+                url: '/showcases/builtin/builtin-image.webp',
+                thumbnailUrl: '/showcases/builtin/builtin-image-thumb.webp',
+                mimeType: 'image/webp',
+                width: 768,
+                height: 768
+            })
+        ).toEqual({
+            id: 'builtin-image',
+            kind: 'remote-image',
+            alt: localized('内置图片示例', 'Built-in image sample'),
+            url: '/showcases/builtin/builtin-image.webp',
+            thumbnailUrl: '/showcases/builtin/builtin-image-thumb.webp',
+            mimeType: 'image/webp',
+            width: 768,
+            height: 768
+        });
         expect(
             normalizeShowcaseAsset({
                 id: 'remote-image',
@@ -143,6 +164,10 @@ describe('showcase item normalizers', () => {
             'https://user:password@cdn.example.com/image.png',
             'https://cdn.example.internal/image.png',
             'https://cdn.example.com/image.png?apiKey=value',
+            '/showcases/builtin/../secret.webp',
+            '/showcases/builtin/nested/image.webp',
+            '/showcases/builtin/image.png',
+            '/showcases/builtin/image.webp?variant=thumbnail',
             'data:image/png;base64,AAAA',
             'blob:local-object',
             'file:///tmp/image.png'

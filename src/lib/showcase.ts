@@ -237,6 +237,7 @@ const REMOTE_IMAGE_MIME_TYPES = new Set<ShowcaseRemoteAsset['mimeType']>([
 const CASE_DIFFICULTIES = new Set<ShowcaseCaseDifficulty>(['beginner', 'intermediate', 'advanced']);
 const SENSITIVE_QUERY_KEYS = /(?:api[-_]?key|access[-_]?token|auth|credential|password|secret|signature)/iu;
 const MANAGED_MEDIA_PATH_PATTERN = /^\/api\/showcase-media\/([a-z0-9][a-z0-9._-]{0,127})(?:\?variant=thumbnail)?$/u;
+const BUILTIN_MEDIA_PATH_PATTERN = /^\/showcases\/builtin\/[a-z0-9][a-z0-9-]{0,159}\.webp$/u;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -321,7 +322,7 @@ function normalizeIdArray(value: unknown, minimumItems: number, maximumItems: nu
 function normalizeHttpsAssetUrl(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
-    if (MANAGED_MEDIA_PATH_PATTERN.test(trimmed)) return trimmed;
+    if (MANAGED_MEDIA_PATH_PATTERN.test(trimmed) || BUILTIN_MEDIA_PATH_PATTERN.test(trimmed)) return trimmed;
     if (!/^https:\/\//iu.test(trimmed)) return null;
     const normalized = normalizePublicRuntimeConfigUrl(value);
     if (!normalized) return null;
@@ -338,6 +339,10 @@ function normalizeHttpsAssetUrl(value: unknown): string | null {
     } catch {
         return null;
     }
+}
+
+export function isBuiltinShowcaseMediaPath(value: string): boolean {
+    return BUILTIN_MEDIA_PATH_PATTERN.test(value.trim());
 }
 
 function managedAssetIdFromUrl(value: string): string | null {
@@ -401,8 +406,15 @@ function normalizeRemoteAsset(record: UnknownRecord, id: string, alt: ShowcaseLo
     const managedAssetId = record.managedAssetId === undefined ? undefined : normalizeIdentifier(record.managedAssetId);
     if (record.managedAssetId !== undefined && !managedAssetId) return null;
     const urlManagedAssetId = managedAssetIdFromUrl(url);
-    if ((url.startsWith('/') && !managedAssetId) || (managedAssetId && urlManagedAssetId !== managedAssetId))
+    const builtinUrl = isBuiltinShowcaseMediaPath(url);
+    if (
+        (url.startsWith('/') && !managedAssetId && !builtinUrl) ||
+        (managedAssetId && urlManagedAssetId !== managedAssetId)
+    )
         return null;
+    if (builtinUrl && managedAssetId) return null;
+    if (builtinUrl && mimeType !== 'image/webp') return null;
+    if (builtinUrl && thumbnailUrl && !isBuiltinShowcaseMediaPath(thumbnailUrl)) return null;
     if (thumbnailUrl && managedAssetId) {
         const thumbnailManagedAssetId = managedAssetIdFromUrl(thumbnailUrl);
         if (thumbnailManagedAssetId !== managedAssetId || !thumbnailUrl.endsWith('?variant=thumbnail')) {

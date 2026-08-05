@@ -711,85 +711,85 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                 </CardContent>
             </Card>
 
-            <div className='grid min-w-0 gap-5 xl:grid-cols-[minmax(17rem,0.72fr)_minmax(0,1.55fr)]'>
-                <Card className='min-w-0 gap-4 py-4'>
-                    <CardHeader className='px-4'>
-                        <CardTitle>{t('admin.showcases.list.title')}</CardTitle>
-                        <CardDescription>
-                            {t('admin.showcases.list.description', { count: topics.length })}
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className='space-y-3 px-4'>
-                        <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem] xl:grid-cols-1'>
-                            <label className='border-input bg-background flex h-9 items-center gap-2 rounded-md border px-3'>
-                                <Search className='text-muted-foreground h-4 w-4 shrink-0' />
-                                <input
-                                    value={search}
-                                    onChange={(event) => setSearch(event.target.value)}
-                                    placeholder={t('admin.showcases.search')}
-                                    className='min-w-0 flex-1 bg-transparent text-sm outline-none'
-                                />
-                            </label>
-                            <select
-                                value={statusFilter}
-                                onChange={(event) =>
-                                    setStatusFilter(event.target.value as 'all' | ShowcaseAdminTopic['status'])
-                                }
-                                className='border-input bg-background h-9 rounded-md border px-3 text-sm'>
-                                <option value='all'>{t('admin.showcases.status.all')}</option>
-                                {(['draft', 'scheduled', 'published', 'unpublished', 'archived'] as const).map(
-                                    (status) => (
-                                        <option key={status} value={status}>
-                                            {t(`admin.showcases.status.${status}`)}
-                                        </option>
-                                    )
-                                )}
-                            </select>
-                        </div>
-                        <div className='max-h-[70vh] space-y-2 overflow-y-auto pr-1'>
-                            {filteredTopics.map((topic) => (
-                                <button
-                                    key={topic.id}
-                                    type='button'
-                                    onClick={() => selectTopic(topic)}
-                                    className={cn(
-                                        'border-border bg-card hover:bg-muted/50 focus-visible:ring-ring/50 w-full rounded-xl border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none',
-                                        !isCreating && selectedId === topic.id && 'border-primary bg-primary/5'
-                                    )}>
-                                    <div className='flex items-start justify-between gap-2'>
-                                        <div className='min-w-0'>
-                                            <p className='truncate text-sm font-semibold' data-i18n-skip='true'>
-                                                {topic.draft.topic.title['zh-CN']}
-                                            </p>
-                                            <p
-                                                className='text-muted-foreground mt-0.5 truncate text-xs'
-                                                data-i18n-skip='true'>
-                                                {topic.slug}
-                                            </p>
-                                        </div>
-                                        <StatusBadge status={topic.status} />
-                                    </div>
-                                    <div className='text-muted-foreground mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs'>
-                                        <span>
-                                            {t('admin.showcases.caseCount', { count: topic.draft.cases.length })}
-                                        </span>
-                                        <span>
-                                            {t('admin.showcases.draftRevision', { revision: topic.draftRevision })}
-                                        </span>
-                                        <span>{formatDateTime(topic.updatedAt)}</span>
-                                    </div>
-                                </button>
-                            ))}
-                            {filteredTopics.length === 0 ? (
-                                <div className='border-border text-muted-foreground rounded-xl border border-dashed px-4 py-10 text-center text-sm'>
-                                    {t('admin.showcases.list.empty')}
-                                </div>
-                            ) : null}
-                        </div>
-                    </CardContent>
-                </Card>
-
+            <div className='min-w-0 space-y-5'>
                 <div className='min-w-0 space-y-5'>
+                    <Card className='min-w-0 gap-4 py-4'>
+                        <CardHeader className='px-4'>
+                            <CardTitle>{t('admin.showcases.list.title')}</CardTitle>
+                            <CardDescription>
+                                {t('admin.showcases.list.description', { count: topics.length })}
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className='space-y-3 px-4'>
+                            <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem]'>
+                                <label className='border-input bg-background flex h-9 items-center gap-2 rounded-md border px-3'>
+                                    <Search className='text-muted-foreground h-4 w-4 shrink-0' />
+                                    <input
+                                        value={search}
+                                        onChange={(event) => setSearch(event.target.value)}
+                                        placeholder={t('admin.showcases.search')}
+                                        className='min-w-0 flex-1 bg-transparent text-sm outline-none'
+                                    />
+                                </label>
+                                <select
+                                    value={statusFilter}
+                                    onChange={(event) =>
+                                        setStatusFilter(event.target.value as 'all' | ShowcaseAdminTopic['status'])
+                                    }
+                                    className='border-input bg-background h-9 rounded-md border px-3 text-sm'>
+                                    <option value='all'>{t('admin.showcases.status.all')}</option>
+                                    {(['draft', 'scheduled', 'published', 'unpublished', 'archived'] as const).map(
+                                        (status) => (
+                                            <option key={status} value={status}>
+                                                {t(`admin.showcases.status.${status}`)}
+                                            </option>
+                                        )
+                                    )}
+                                </select>
+                            </div>
+                            <div className='grid max-h-[22rem] gap-2 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3'>
+                                {filteredTopics.map((topic) => (
+                                    <button
+                                        key={topic.id}
+                                        type='button'
+                                        onClick={() => selectTopic(topic)}
+                                        className={cn(
+                                            'border-border bg-card hover:bg-muted/50 focus-visible:ring-ring/50 w-full rounded-xl border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none',
+                                            !isCreating && selectedId === topic.id && 'border-primary bg-primary/5'
+                                        )}>
+                                        <div className='flex items-start justify-between gap-2'>
+                                            <div className='min-w-0'>
+                                                <p className='truncate text-sm font-semibold' data-i18n-skip='true'>
+                                                    {topic.draft.topic.title['zh-CN']}
+                                                </p>
+                                                <p
+                                                    className='text-muted-foreground mt-0.5 truncate text-xs'
+                                                    data-i18n-skip='true'>
+                                                    {topic.slug}
+                                                </p>
+                                            </div>
+                                            <StatusBadge status={topic.status} />
+                                        </div>
+                                        <div className='text-muted-foreground mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs'>
+                                            <span>
+                                                {t('admin.showcases.caseCount', { count: topic.draft.cases.length })}
+                                            </span>
+                                            <span>
+                                                {t('admin.showcases.draftRevision', { revision: topic.draftRevision })}
+                                            </span>
+                                            <span>{formatDateTime(topic.updatedAt)}</span>
+                                        </div>
+                                    </button>
+                                ))}
+                                {filteredTopics.length === 0 ? (
+                                    <div className='border-border text-muted-foreground rounded-xl border border-dashed px-4 py-10 text-center text-sm sm:col-span-2 xl:col-span-3'>
+                                        {t('admin.showcases.list.empty')}
+                                    </div>
+                                ) : null}
+                            </div>
+                        </CardContent>
+                    </Card>
+
                     <Card className='min-w-0 gap-4 py-4'>
                         <CardHeader className='px-4 sm:px-6'>
                             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
@@ -870,392 +870,480 @@ export function ShowcaseAdminClient({ initialTopics, initialActorRole, defaultDr
                                 <TabsContent value='structured' className='mt-3 space-y-4'>
                                     {parsedDraft ? (
                                         <>
-                                            <div className='grid gap-3 sm:grid-cols-2'>
-                                                <label className='space-y-1.5 text-sm'>
-                                                    <span className='font-medium'>{t('admin.showcases.field.id')}</span>
-                                                    <Input
-                                                        name='showcase-topic-id'
-                                                        autoComplete='off'
-                                                        value={parsedDraft.topic.id}
-                                                        disabled={!canWrite || !isCreating}
-                                                        onChange={(event) =>
-                                                            updateStructuredDraft((draft) => ({
-                                                                ...draft,
-                                                                topic: { ...draft.topic, id: event.target.value }
-                                                            }))
-                                                        }
-                                                    />
-                                                </label>
-                                                <label className='space-y-1.5 text-sm'>
-                                                    <span className='font-medium'>
-                                                        {t('admin.showcases.field.slug')}
+                                            <details
+                                                key={`basics-${isCreating ? 'create' : selectedId}`}
+                                                open
+                                                className='border-border bg-panel-ghost rounded-xl border'>
+                                                <summary className='cursor-pointer px-4 py-3'>
+                                                    <span className='block text-sm font-semibold'>
+                                                        {t('admin.showcases.editor.basicsTitle')}
                                                     </span>
-                                                    <Input
-                                                        name='showcase-topic-slug'
-                                                        autoComplete='off'
-                                                        value={parsedDraft.topic.slug}
-                                                        disabled={!canWrite}
-                                                        onChange={(event) =>
-                                                            updateStructuredDraft((draft) => ({
-                                                                ...draft,
-                                                                topic: { ...draft.topic, slug: event.target.value }
-                                                            }))
-                                                        }
-                                                    />
-                                                </label>
-                                                <label className='space-y-1.5 text-sm'>
-                                                    <span className='font-medium'>
-                                                        {t('admin.showcases.field.sortOrder')}
+                                                    <span className='text-muted-foreground mt-0.5 block text-xs'>
+                                                        {t('admin.showcases.editor.basicsDescription')}
                                                     </span>
-                                                    <Input
-                                                        name='showcase-topic-sort-order'
-                                                        type='number'
-                                                        min={0}
-                                                        value={parsedDraft.topic.sortOrder}
-                                                        disabled={!canWrite}
-                                                        onChange={(event) =>
-                                                            updateStructuredDraft((draft) => ({
-                                                                ...draft,
-                                                                topic: {
-                                                                    ...draft.topic,
-                                                                    sortOrder: Number(event.target.value) || 0
-                                                                }
-                                                            }))
-                                                        }
-                                                    />
-                                                </label>
-                                                <label className='border-border flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm sm:self-end'>
-                                                    <Checkbox
-                                                        checked={parsedDraft.topic.featured}
-                                                        disabled={!canWrite}
-                                                        onCheckedChange={(checked) =>
-                                                            updateStructuredDraft((draft) => ({
-                                                                ...draft,
-                                                                topic: { ...draft.topic, featured: checked === true }
-                                                            }))
-                                                        }
-                                                    />
-                                                    <span>{t('admin.showcases.field.featured')}</span>
-                                                </label>
-                                            </div>
-
-                                            <div className='grid gap-4 lg:grid-cols-2'>
-                                                {(['zh-CN', 'en-US'] as const).map((locale) => (
-                                                    <div
-                                                        key={locale}
-                                                        className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
-                                                        <p className='text-sm font-semibold'>
-                                                            {t(`admin.showcases.language.${locale}`)}
-                                                        </p>
-                                                        {(
-                                                            [
-                                                                'title',
-                                                                'summary',
-                                                                'preparation',
-                                                                'limitations',
-                                                                'capabilities',
-                                                                'suitableFor',
-                                                                'unsuitableFor',
-                                                                'recommendedInputQuality'
-                                                            ] as const
-                                                        ).map((field) => {
-                                                            const value = parsedDraft.topic[field]?.[locale] ?? '';
-                                                            const label = t(`admin.showcases.field.${field}`);
-                                                            return field === 'title' ? (
-                                                                <label
-                                                                    key={field}
-                                                                    className='block space-y-1.5 text-sm'>
-                                                                    <span className='font-medium'>{label}</span>
-                                                                    <Input
-                                                                        name={`showcase-${field}-${locale}`}
-                                                                        autoComplete='off'
-                                                                        value={value}
-                                                                        disabled={!canWrite}
-                                                                        onChange={(event) =>
-                                                                            updateTopicText(
-                                                                                field,
-                                                                                locale,
-                                                                                event.target.value
-                                                                            )
-                                                                        }
-                                                                    />
-                                                                </label>
-                                                            ) : (
-                                                                <label
-                                                                    key={field}
-                                                                    className='block space-y-1.5 text-sm'>
-                                                                    <span className='font-medium'>{label}</span>
-                                                                    <Textarea
-                                                                        name={`showcase-${field}-${locale}`}
-                                                                        value={value}
-                                                                        disabled={!canWrite}
-                                                                        onChange={(event) =>
-                                                                            updateTopicText(
-                                                                                field,
-                                                                                locale,
-                                                                                event.target.value
-                                                                            )
-                                                                        }
-                                                                        className='min-h-20'
-                                                                    />
-                                                                </label>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            <label className='block space-y-1.5 text-sm'>
-                                                <span className='font-medium'>{t('admin.showcases.field.tags')}</span>
-                                                <Textarea
-                                                    name='showcase-topic-tags'
-                                                    value={stringifyTagLines(parsedDraft.topic.tags)}
-                                                    disabled={!canWrite}
-                                                    onChange={(event) =>
-                                                        updateStructuredDraft((draft) => ({
-                                                            ...draft,
-                                                            topic: {
-                                                                ...draft.topic,
-                                                                tags: parseTagLines(event.target.value)
+                                                </summary>
+                                                <div className='border-border grid gap-3 border-t p-4 sm:grid-cols-2'>
+                                                    <label className='space-y-1.5 text-sm'>
+                                                        <span className='font-medium'>
+                                                            {t('admin.showcases.field.id')}
+                                                        </span>
+                                                        <Input
+                                                            name='showcase-topic-id'
+                                                            autoComplete='off'
+                                                            value={parsedDraft.topic.id}
+                                                            disabled={!canWrite || !isCreating}
+                                                            onChange={(event) =>
+                                                                updateStructuredDraft((draft) => ({
+                                                                    ...draft,
+                                                                    topic: { ...draft.topic, id: event.target.value }
+                                                                }))
                                                             }
-                                                        }))
-                                                    }
-                                                    className='min-h-24 font-mono text-xs'
-                                                />
-                                                <span className='text-muted-foreground block text-xs'>
-                                                    {t('admin.showcases.field.tagsHint')}
-                                                </span>
-                                            </label>
-
-                                            <label className='block space-y-1.5 text-sm'>
-                                                <span className='font-medium'>
-                                                    {t('admin.showcases.field.categories')}
-                                                </span>
-                                                <Textarea
-                                                    name='showcase-topic-categories'
-                                                    value={stringifyTagLines(parsedDraft.topic.categories ?? [])}
-                                                    disabled={!canWrite}
-                                                    onChange={(event) =>
-                                                        updateStructuredDraft((draft) => {
-                                                            const categories = parseTagLines(event.target.value);
-                                                            const topic = { ...draft.topic };
-                                                            if (categories.length > 0) topic.categories = categories;
-                                                            else delete topic.categories;
-                                                            return { ...draft, topic };
-                                                        })
-                                                    }
-                                                    className='min-h-20 font-mono text-xs'
-                                                />
-                                                <span className='text-muted-foreground block text-xs'>
-                                                    {t('admin.showcases.field.categoriesHint')}
-                                                </span>
-                                            </label>
-
-                                            <div className='grid gap-4 lg:grid-cols-2'>
-                                                <div className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
-                                                    <div>
-                                                        <p className='text-sm font-semibold'>
-                                                            {t('admin.showcases.topicFaq.title')}
-                                                        </p>
-                                                        <p className='text-muted-foreground text-xs'>
-                                                            {t('admin.showcases.topicFaq.description')}
-                                                        </p>
-                                                    </div>
-                                                    {(parsedDraft.topic.faq ?? []).map((faq, faqIndex) => (
-                                                        <div
-                                                            key={faqIndex}
-                                                            className='border-border bg-panel-ghost space-y-2 rounded-lg border p-2'>
-                                                            {(['zh-CN', 'en-US'] as const).map((locale) => (
-                                                                <React.Fragment key={locale}>
-                                                                    <label className='block space-y-1 text-xs'>
-                                                                        <span>
-                                                                            {t('admin.showcases.topicFaq.question', {
-                                                                                language: t(
-                                                                                    `admin.showcases.language.${locale}`
-                                                                                )
-                                                                            })}
-                                                                        </span>
-                                                                        <Input
-                                                                            value={faq.question[locale]}
-                                                                            disabled={!canWrite}
-                                                                            onChange={(event) =>
-                                                                                updateStructuredDraft((draft) => ({
-                                                                                    ...draft,
-                                                                                    topic: setShowcaseTopicFaq(
-                                                                                        draft.topic,
-                                                                                        (draft.topic.faq ?? []).map(
-                                                                                            (candidate, index) =>
-                                                                                                index === faqIndex
-                                                                                                    ? {
-                                                                                                          ...candidate,
-                                                                                                          question: {
-                                                                                                              ...candidate.question,
-                                                                                                              [locale]:
-                                                                                                                  event
-                                                                                                                      .target
-                                                                                                                      .value
-                                                                                                          }
-                                                                                                      }
-                                                                                                    : candidate
-                                                                                        )
-                                                                                    )
-                                                                                }))
-                                                                            }
-                                                                        />
-                                                                    </label>
-                                                                    <label className='block space-y-1 text-xs'>
-                                                                        <span>
-                                                                            {t('admin.showcases.topicFaq.answer', {
-                                                                                language: t(
-                                                                                    `admin.showcases.language.${locale}`
-                                                                                )
-                                                                            })}
-                                                                        </span>
-                                                                        <Textarea
-                                                                            value={faq.answer[locale]}
-                                                                            disabled={!canWrite}
-                                                                            className='min-h-16'
-                                                                            onChange={(event) =>
-                                                                                updateStructuredDraft((draft) => ({
-                                                                                    ...draft,
-                                                                                    topic: setShowcaseTopicFaq(
-                                                                                        draft.topic,
-                                                                                        (draft.topic.faq ?? []).map(
-                                                                                            (candidate, index) =>
-                                                                                                index === faqIndex
-                                                                                                    ? {
-                                                                                                          ...candidate,
-                                                                                                          answer: {
-                                                                                                              ...candidate.answer,
-                                                                                                              [locale]:
-                                                                                                                  event
-                                                                                                                      .target
-                                                                                                                      .value
-                                                                                                          }
-                                                                                                      }
-                                                                                                    : candidate
-                                                                                        )
-                                                                                    )
-                                                                                }))
-                                                                            }
-                                                                        />
-                                                                    </label>
-                                                                </React.Fragment>
-                                                            ))}
-                                                            <Button
-                                                                type='button'
-                                                                variant='ghost'
-                                                                size='sm'
-                                                                disabled={!canWrite}
-                                                                onClick={() =>
-                                                                    updateStructuredDraft((draft) => ({
-                                                                        ...draft,
-                                                                        topic: setShowcaseTopicFaq(
-                                                                            draft.topic,
-                                                                            (draft.topic.faq ?? []).filter(
-                                                                                (_, index) => index !== faqIndex
-                                                                            )
-                                                                        )
-                                                                    }))
-                                                                }>
-                                                                <Trash2 />
-                                                                {t('admin.showcases.topicFaq.remove')}
-                                                            </Button>
-                                                        </div>
-                                                    ))}
-                                                    <Button
-                                                        type='button'
-                                                        variant='outline'
-                                                        size='sm'
-                                                        disabled={
-                                                            !canWrite || (parsedDraft.topic.faq?.length ?? 0) >= 20
-                                                        }
-                                                        onClick={() =>
-                                                            updateStructuredDraft((draft) => ({
-                                                                ...draft,
-                                                                topic: setShowcaseTopicFaq(draft.topic, [
-                                                                    ...(draft.topic.faq ?? []),
-                                                                    {
-                                                                        question: { 'zh-CN': '', 'en-US': '' },
-                                                                        answer: { 'zh-CN': '', 'en-US': '' }
+                                                        />
+                                                    </label>
+                                                    <label className='space-y-1.5 text-sm'>
+                                                        <span className='font-medium'>
+                                                            {t('admin.showcases.field.slug')}
+                                                        </span>
+                                                        <Input
+                                                            name='showcase-topic-slug'
+                                                            autoComplete='off'
+                                                            value={parsedDraft.topic.slug}
+                                                            disabled={!canWrite}
+                                                            onChange={(event) =>
+                                                                updateStructuredDraft((draft) => ({
+                                                                    ...draft,
+                                                                    topic: { ...draft.topic, slug: event.target.value }
+                                                                }))
+                                                            }
+                                                        />
+                                                    </label>
+                                                    <label className='space-y-1.5 text-sm'>
+                                                        <span className='font-medium'>
+                                                            {t('admin.showcases.field.sortOrder')}
+                                                        </span>
+                                                        <Input
+                                                            name='showcase-topic-sort-order'
+                                                            type='number'
+                                                            min={0}
+                                                            value={parsedDraft.topic.sortOrder}
+                                                            disabled={!canWrite}
+                                                            onChange={(event) =>
+                                                                updateStructuredDraft((draft) => ({
+                                                                    ...draft,
+                                                                    topic: {
+                                                                        ...draft.topic,
+                                                                        sortOrder: Number(event.target.value) || 0
                                                                     }
-                                                                ])
-                                                            }))
-                                                        }>
-                                                        <Plus />
-                                                        {t('admin.showcases.topicFaq.add')}
-                                                    </Button>
+                                                                }))
+                                                            }
+                                                        />
+                                                    </label>
+                                                    <label className='border-border flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm sm:self-end'>
+                                                        <Checkbox
+                                                            checked={parsedDraft.topic.featured}
+                                                            disabled={!canWrite}
+                                                            onCheckedChange={(checked) =>
+                                                                updateStructuredDraft((draft) => ({
+                                                                    ...draft,
+                                                                    topic: {
+                                                                        ...draft.topic,
+                                                                        featured: checked === true
+                                                                    }
+                                                                }))
+                                                            }
+                                                        />
+                                                        <span>{t('admin.showcases.field.featured')}</span>
+                                                    </label>
                                                 </div>
-                                                <div className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
-                                                    <div>
-                                                        <p className='text-sm font-semibold'>
-                                                            {t('admin.showcases.relatedTopics.title')}
-                                                        </p>
-                                                        <p className='text-muted-foreground text-xs'>
-                                                            {t('admin.showcases.relatedTopics.description')}
-                                                        </p>
-                                                    </div>
-                                                    <div className='grid gap-2 sm:grid-cols-2'>
-                                                        {topics
-                                                            .filter((topic) => topic.id !== parsedDraft.topic.id)
-                                                            .map((topic) => {
-                                                                const checked =
-                                                                    parsedDraft.topic.relatedTopicIds?.includes(
-                                                                        topic.id
-                                                                    );
-                                                                return (
+                                            </details>
+
+                                            <details
+                                                key={`content-${isCreating ? 'create' : selectedId}`}
+                                                className='border-border bg-panel-ghost rounded-xl border'>
+                                                <summary className='cursor-pointer px-4 py-3'>
+                                                    <span className='block text-sm font-semibold'>
+                                                        {t('admin.showcases.editor.contentTitle')}
+                                                    </span>
+                                                    <span className='text-muted-foreground mt-0.5 block text-xs'>
+                                                        {t('admin.showcases.editor.contentDescription')}
+                                                    </span>
+                                                </summary>
+                                                <div className='border-border grid gap-4 border-t p-4 lg:grid-cols-2'>
+                                                    {(['zh-CN', 'en-US'] as const).map((locale) => (
+                                                        <div
+                                                            key={locale}
+                                                            className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
+                                                            <p className='text-sm font-semibold'>
+                                                                {t(`admin.showcases.language.${locale}`)}
+                                                            </p>
+                                                            {(
+                                                                [
+                                                                    'title',
+                                                                    'summary',
+                                                                    'preparation',
+                                                                    'limitations',
+                                                                    'capabilities',
+                                                                    'suitableFor',
+                                                                    'unsuitableFor',
+                                                                    'recommendedInputQuality'
+                                                                ] as const
+                                                            ).map((field) => {
+                                                                const value = parsedDraft.topic[field]?.[locale] ?? '';
+                                                                const label = t(`admin.showcases.field.${field}`);
+                                                                return field === 'title' ? (
                                                                     <label
-                                                                        key={topic.id}
-                                                                        className='border-border bg-panel-ghost flex min-h-12 items-start gap-2 rounded-lg border p-2 text-sm'>
-                                                                        <Checkbox
-                                                                            checked={checked === true}
+                                                                        key={field}
+                                                                        className='block space-y-1.5 text-sm'>
+                                                                        <span className='font-medium'>{label}</span>
+                                                                        <Input
+                                                                            name={`showcase-${field}-${locale}`}
+                                                                            autoComplete='off'
+                                                                            value={value}
                                                                             disabled={!canWrite}
-                                                                            onCheckedChange={(nextChecked) =>
-                                                                                updateStructuredDraft((draft) => ({
-                                                                                    ...draft,
-                                                                                    topic: setShowcaseTopicRelatedIds(
-                                                                                        draft.topic,
-                                                                                        nextChecked === true
-                                                                                            ? [
-                                                                                                  ...(draft.topic
-                                                                                                      .relatedTopicIds ??
-                                                                                                      []),
-                                                                                                  topic.id
-                                                                                              ]
-                                                                                            : (
-                                                                                                  draft.topic
-                                                                                                      .relatedTopicIds ??
-                                                                                                  []
-                                                                                              ).filter(
-                                                                                                  (id) =>
-                                                                                                      id !== topic.id
-                                                                                              )
-                                                                                    )
-                                                                                }))
+                                                                            onChange={(event) =>
+                                                                                updateTopicText(
+                                                                                    field,
+                                                                                    locale,
+                                                                                    event.target.value
+                                                                                )
                                                                             }
                                                                         />
-                                                                        <span className='min-w-0'>
-                                                                            <span className='block truncate font-medium'>
-                                                                                {topic.draft.topic.title['zh-CN']}
-                                                                            </span>
-                                                                            <span
-                                                                                className='text-muted-foreground block truncate text-xs'
-                                                                                data-i18n-skip='true'>
-                                                                                {topic.id}
-                                                                            </span>
-                                                                        </span>
+                                                                    </label>
+                                                                ) : (
+                                                                    <label
+                                                                        key={field}
+                                                                        className='block space-y-1.5 text-sm'>
+                                                                        <span className='font-medium'>{label}</span>
+                                                                        <Textarea
+                                                                            name={`showcase-${field}-${locale}`}
+                                                                            value={value}
+                                                                            disabled={!canWrite}
+                                                                            onChange={(event) =>
+                                                                                updateTopicText(
+                                                                                    field,
+                                                                                    locale,
+                                                                                    event.target.value
+                                                                                )
+                                                                            }
+                                                                            className='min-h-20'
+                                                                        />
                                                                     </label>
                                                                 );
                                                             })}
-                                                    </div>
-                                                    {topics.filter((topic) => topic.id !== parsedDraft.topic.id)
-                                                        .length === 0 ? (
-                                                        <p className='text-muted-foreground text-sm'>
-                                                            {t('admin.showcases.relatedTopics.empty')}
-                                                        </p>
-                                                    ) : null}
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                            </div>
+                                            </details>
+
+                                            <details
+                                                key={`operations-${isCreating ? 'create' : selectedId}`}
+                                                className='border-border bg-panel-ghost rounded-xl border'>
+                                                <summary className='cursor-pointer px-4 py-3'>
+                                                    <span className='block text-sm font-semibold'>
+                                                        {t('admin.showcases.editor.operationsTitle')}
+                                                    </span>
+                                                    <span className='text-muted-foreground mt-0.5 block text-xs'>
+                                                        {t('admin.showcases.editor.operationsDescription')}
+                                                    </span>
+                                                </summary>
+                                                <div className='border-border space-y-4 border-t p-4'>
+                                                    <label className='block space-y-1.5 text-sm'>
+                                                        <span className='font-medium'>
+                                                            {t('admin.showcases.field.tags')}
+                                                        </span>
+                                                        <Textarea
+                                                            name='showcase-topic-tags'
+                                                            value={stringifyTagLines(parsedDraft.topic.tags)}
+                                                            disabled={!canWrite}
+                                                            onChange={(event) =>
+                                                                updateStructuredDraft((draft) => ({
+                                                                    ...draft,
+                                                                    topic: {
+                                                                        ...draft.topic,
+                                                                        tags: parseTagLines(event.target.value)
+                                                                    }
+                                                                }))
+                                                            }
+                                                            className='min-h-24 font-mono text-xs'
+                                                        />
+                                                        <span className='text-muted-foreground block text-xs'>
+                                                            {t('admin.showcases.field.tagsHint')}
+                                                        </span>
+                                                    </label>
+
+                                                    <label className='block space-y-1.5 text-sm'>
+                                                        <span className='font-medium'>
+                                                            {t('admin.showcases.field.categories')}
+                                                        </span>
+                                                        <Textarea
+                                                            name='showcase-topic-categories'
+                                                            value={stringifyTagLines(
+                                                                parsedDraft.topic.categories ?? []
+                                                            )}
+                                                            disabled={!canWrite}
+                                                            onChange={(event) =>
+                                                                updateStructuredDraft((draft) => {
+                                                                    const categories = parseTagLines(
+                                                                        event.target.value
+                                                                    );
+                                                                    const topic = { ...draft.topic };
+                                                                    if (categories.length > 0)
+                                                                        topic.categories = categories;
+                                                                    else delete topic.categories;
+                                                                    return { ...draft, topic };
+                                                                })
+                                                            }
+                                                            className='min-h-20 font-mono text-xs'
+                                                        />
+                                                        <span className='text-muted-foreground block text-xs'>
+                                                            {t('admin.showcases.field.categoriesHint')}
+                                                        </span>
+                                                    </label>
+
+                                                    <div className='grid gap-4 lg:grid-cols-2'>
+                                                        <div className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
+                                                            <div>
+                                                                <p className='text-sm font-semibold'>
+                                                                    {t('admin.showcases.topicFaq.title')}
+                                                                </p>
+                                                                <p className='text-muted-foreground text-xs'>
+                                                                    {t('admin.showcases.topicFaq.description')}
+                                                                </p>
+                                                            </div>
+                                                            {(parsedDraft.topic.faq ?? []).map((faq, faqIndex) => (
+                                                                <div
+                                                                    key={faqIndex}
+                                                                    className='border-border bg-panel-ghost space-y-2 rounded-lg border p-2'>
+                                                                    {(['zh-CN', 'en-US'] as const).map((locale) => (
+                                                                        <React.Fragment key={locale}>
+                                                                            <label className='block space-y-1 text-xs'>
+                                                                                <span>
+                                                                                    {t(
+                                                                                        'admin.showcases.topicFaq.question',
+                                                                                        {
+                                                                                            language: t(
+                                                                                                `admin.showcases.language.${locale}`
+                                                                                            )
+                                                                                        }
+                                                                                    )}
+                                                                                </span>
+                                                                                <Input
+                                                                                    value={faq.question[locale]}
+                                                                                    disabled={!canWrite}
+                                                                                    onChange={(event) =>
+                                                                                        updateStructuredDraft(
+                                                                                            (draft) => ({
+                                                                                                ...draft,
+                                                                                                topic: setShowcaseTopicFaq(
+                                                                                                    draft.topic,
+                                                                                                    (
+                                                                                                        draft.topic
+                                                                                                            .faq ?? []
+                                                                                                    ).map(
+                                                                                                        (
+                                                                                                            candidate,
+                                                                                                            index
+                                                                                                        ) =>
+                                                                                                            index ===
+                                                                                                            faqIndex
+                                                                                                                ? {
+                                                                                                                      ...candidate,
+                                                                                                                      question:
+                                                                                                                          {
+                                                                                                                              ...candidate.question,
+                                                                                                                              [locale]:
+                                                                                                                                  event
+                                                                                                                                      .target
+                                                                                                                                      .value
+                                                                                                                          }
+                                                                                                                  }
+                                                                                                                : candidate
+                                                                                                    )
+                                                                                                )
+                                                                                            })
+                                                                                        )
+                                                                                    }
+                                                                                />
+                                                                            </label>
+                                                                            <label className='block space-y-1 text-xs'>
+                                                                                <span>
+                                                                                    {t(
+                                                                                        'admin.showcases.topicFaq.answer',
+                                                                                        {
+                                                                                            language: t(
+                                                                                                `admin.showcases.language.${locale}`
+                                                                                            )
+                                                                                        }
+                                                                                    )}
+                                                                                </span>
+                                                                                <Textarea
+                                                                                    value={faq.answer[locale]}
+                                                                                    disabled={!canWrite}
+                                                                                    className='min-h-16'
+                                                                                    onChange={(event) =>
+                                                                                        updateStructuredDraft(
+                                                                                            (draft) => ({
+                                                                                                ...draft,
+                                                                                                topic: setShowcaseTopicFaq(
+                                                                                                    draft.topic,
+                                                                                                    (
+                                                                                                        draft.topic
+                                                                                                            .faq ?? []
+                                                                                                    ).map(
+                                                                                                        (
+                                                                                                            candidate,
+                                                                                                            index
+                                                                                                        ) =>
+                                                                                                            index ===
+                                                                                                            faqIndex
+                                                                                                                ? {
+                                                                                                                      ...candidate,
+                                                                                                                      answer: {
+                                                                                                                          ...candidate.answer,
+                                                                                                                          [locale]:
+                                                                                                                              event
+                                                                                                                                  .target
+                                                                                                                                  .value
+                                                                                                                      }
+                                                                                                                  }
+                                                                                                                : candidate
+                                                                                                    )
+                                                                                                )
+                                                                                            })
+                                                                                        )
+                                                                                    }
+                                                                                />
+                                                                            </label>
+                                                                        </React.Fragment>
+                                                                    ))}
+                                                                    <Button
+                                                                        type='button'
+                                                                        variant='ghost'
+                                                                        size='sm'
+                                                                        disabled={!canWrite}
+                                                                        onClick={() =>
+                                                                            updateStructuredDraft((draft) => ({
+                                                                                ...draft,
+                                                                                topic: setShowcaseTopicFaq(
+                                                                                    draft.topic,
+                                                                                    (draft.topic.faq ?? []).filter(
+                                                                                        (_, index) => index !== faqIndex
+                                                                                    )
+                                                                                )
+                                                                            }))
+                                                                        }>
+                                                                        <Trash2 />
+                                                                        {t('admin.showcases.topicFaq.remove')}
+                                                                    </Button>
+                                                                </div>
+                                                            ))}
+                                                            <Button
+                                                                type='button'
+                                                                variant='outline'
+                                                                size='sm'
+                                                                disabled={
+                                                                    !canWrite ||
+                                                                    (parsedDraft.topic.faq?.length ?? 0) >= 20
+                                                                }
+                                                                onClick={() =>
+                                                                    updateStructuredDraft((draft) => ({
+                                                                        ...draft,
+                                                                        topic: setShowcaseTopicFaq(draft.topic, [
+                                                                            ...(draft.topic.faq ?? []),
+                                                                            {
+                                                                                question: { 'zh-CN': '', 'en-US': '' },
+                                                                                answer: { 'zh-CN': '', 'en-US': '' }
+                                                                            }
+                                                                        ])
+                                                                    }))
+                                                                }>
+                                                                <Plus />
+                                                                {t('admin.showcases.topicFaq.add')}
+                                                            </Button>
+                                                        </div>
+                                                        <div className='app-panel-subtle border-border space-y-3 rounded-xl border p-3'>
+                                                            <div>
+                                                                <p className='text-sm font-semibold'>
+                                                                    {t('admin.showcases.relatedTopics.title')}
+                                                                </p>
+                                                                <p className='text-muted-foreground text-xs'>
+                                                                    {t('admin.showcases.relatedTopics.description')}
+                                                                </p>
+                                                            </div>
+                                                            <div className='grid gap-2 sm:grid-cols-2'>
+                                                                {topics
+                                                                    .filter(
+                                                                        (topic) => topic.id !== parsedDraft.topic.id
+                                                                    )
+                                                                    .map((topic) => {
+                                                                        const checked =
+                                                                            parsedDraft.topic.relatedTopicIds?.includes(
+                                                                                topic.id
+                                                                            );
+                                                                        return (
+                                                                            <label
+                                                                                key={topic.id}
+                                                                                className='border-border bg-panel-ghost flex min-h-12 items-start gap-2 rounded-lg border p-2 text-sm'>
+                                                                                <Checkbox
+                                                                                    checked={checked === true}
+                                                                                    disabled={!canWrite}
+                                                                                    onCheckedChange={(nextChecked) =>
+                                                                                        updateStructuredDraft(
+                                                                                            (draft) => ({
+                                                                                                ...draft,
+                                                                                                topic: setShowcaseTopicRelatedIds(
+                                                                                                    draft.topic,
+                                                                                                    nextChecked === true
+                                                                                                        ? [
+                                                                                                              ...(draft
+                                                                                                                  .topic
+                                                                                                                  .relatedTopicIds ??
+                                                                                                                  []),
+                                                                                                              topic.id
+                                                                                                          ]
+                                                                                                        : (
+                                                                                                              draft
+                                                                                                                  .topic
+                                                                                                                  .relatedTopicIds ??
+                                                                                                              []
+                                                                                                          ).filter(
+                                                                                                              (id) =>
+                                                                                                                  id !==
+                                                                                                                  topic.id
+                                                                                                          )
+                                                                                                )
+                                                                                            })
+                                                                                        )
+                                                                                    }
+                                                                                />
+                                                                                <span className='min-w-0'>
+                                                                                    <span className='block truncate font-medium'>
+                                                                                        {
+                                                                                            topic.draft.topic.title[
+                                                                                                'zh-CN'
+                                                                                            ]
+                                                                                        }
+                                                                                    </span>
+                                                                                    <span
+                                                                                        className='text-muted-foreground block truncate text-xs'
+                                                                                        data-i18n-skip='true'>
+                                                                                        {topic.id}
+                                                                                    </span>
+                                                                                </span>
+                                                                            </label>
+                                                                        );
+                                                                    })}
+                                                            </div>
+                                                            {topics.filter((topic) => topic.id !== parsedDraft.topic.id)
+                                                                .length === 0 ? (
+                                                                <p className='text-muted-foreground text-sm'>
+                                                                    {t('admin.showcases.relatedTopics.empty')}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </details>
 
                                             <div className='space-y-2'>
                                                 <div>

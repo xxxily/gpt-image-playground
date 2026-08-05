@@ -12,6 +12,7 @@ import type {
     ShowcaseTopicWriteInput
 } from './types';
 import { buildCatalogFromTopicDraft, normalizeShowcaseIdentifier, normalizeShowcaseTopicDraft } from './validation';
+import { DEFAULT_SHOWCASE_CATALOG } from '@/lib/default-showcases';
 import { getAuditLogMaxRows, pruneAuditLogsToMaxRows } from '@/lib/server/audit';
 import { getServerDatabaseReady, getSqliteClient } from '@/lib/server/db';
 import { showcasePublications, showcaseTopics } from '@/lib/server/schema';
@@ -72,6 +73,83 @@ function normalizedDraftOrThrow(value: unknown): ShowcaseTopicDraft {
     if (!draft) throw new Error('专题草稿不完整或包含不安全内容。');
     if (JSON.stringify(draft).length > 2_000_000) throw new Error('专题草稿超过 2 MB 限制。');
     return draft;
+}
+
+function getDefaultTopicDrafts(): ShowcaseTopicDraft[] {
+    return DEFAULT_SHOWCASE_CATALOG.topics.map((topic) => {
+        const caseIds = new Set(topic.caseIds);
+        const cases = DEFAULT_SHOWCASE_CATALOG.cases.filter((showcaseCase) => caseIds.has(showcaseCase.id));
+        const assetIds = new Set<string>([topic.coverAssetId]);
+        for (const showcaseCase of cases) {
+            assetIds.add(showcaseCase.coverAssetId);
+            showcaseCase.inputAssetIds.forEach((assetId) => assetIds.add(assetId));
+            showcaseCase.outputAssetIds.forEach((assetId) => assetIds.add(assetId));
+        }
+        return {
+            topic,
+            cases,
+            assets: DEFAULT_SHOWCASE_CATALOG.assets.filter((asset) => assetIds.has(asset.id))
+        };
+    });
+}
+
+function availableDefaultSlug(baseSlug: string, usedSlugs: Set<string>): string {
+    if (!usedSlugs.has(baseSlug)) return baseSlug;
+    const fallbackBase = `${baseSlug}-builtin`;
+    if (!usedSlugs.has(fallbackBase)) return fallbackBase;
+    for (let suffix = 2; suffix <= 999; suffix += 1) {
+        const candidate = `${fallbackBase}-${suffix}`;
+        if (!usedSlugs.has(candidate)) return candidate;
+    }
+    throw new Error(`无法为内置专题分配可用 Slug：${baseSlug}`);
+}
+
+/**
+ * Materializes code-bundled topics as editable drafts without overwriting any
+ * administrator-owned state. This is intentionally safe to call before every
+ * admin read so new installations and future newly bundled topics self-heal.
+ */
+export async function ensureDefaultShowcaseTopicsAdmin(): Promise<number> {
+    await getServerDatabaseReady();
+    let inserted = 0;
+    getSqliteClient()
+        .transaction(() => {
+            const existing = getSqliteClient().prepare('SELECT "id", "slug" FROM "showcase_topics";').all() as Array<{
+                id: string;
+                slug: string;
+            }>;
+            const existingIds = new Set(existing.map((row) => row.id));
+            const usedSlugs = new Set(existing.map((row) => row.slug));
+            const insert = getSqliteClient().prepare(
+                `INSERT INTO "showcase_topics"
+                 ("id", "slug", "status", "featured", "sortOrder", "startsAt", "endsAt", "draftJson", "draftRevision", "createdByUserId", "updatedByUserId", "createdAt", "updatedAt")
+                 VALUES (?, ?, 'draft', ?, ?, NULL, NULL, ?, 1, NULL, NULL, ?, ?);`
+            );
+            const now = Date.now();
+
+            for (const bundledDraft of getDefaultTopicDrafts()) {
+                if (existingIds.has(bundledDraft.topic.id)) continue;
+                const slug = availableDefaultSlug(bundledDraft.topic.slug, usedSlugs);
+                const draft =
+                    slug === bundledDraft.topic.slug
+                        ? bundledDraft
+                        : { ...bundledDraft, topic: { ...bundledDraft.topic, slug } };
+                insert.run(
+                    draft.topic.id,
+                    slug,
+                    draft.topic.featured ? 1 : 0,
+                    draft.topic.sortOrder,
+                    JSON.stringify(draft),
+                    now,
+                    now
+                );
+                existingIds.add(draft.topic.id);
+                usedSlugs.add(slug);
+                inserted += 1;
+            }
+        })
+        .immediate();
+    return inserted;
 }
 
 function assertDateWindow(startsAt: Date | null | undefined, endsAt: Date | null | undefined): void {
@@ -171,8 +249,8 @@ async function createPublication(
             .get(row.id) as { revision: number };
         const revision = Number(revisionRow.revision) + 1;
         const catalogRevision = `topic-${row.id}-r${revision}-${publicationId.slice(0, 8)}`;
-    const catalog = buildCatalogFromTopicDraft(publicationDraft, catalogRevision, now.getTime());
-    catalog.topics[0] = { ...catalog.topics[0]!, publishedAt: now.getTime() };
+        const catalog = buildCatalogFromTopicDraft(publicationDraft, catalogRevision, now.getTime());
+        catalog.topics[0] = { ...catalog.topics[0]!, publishedAt: now.getTime() };
         const snapshotJson = publicationSnapshot({
             topic: catalog.topics[0]!,
             cases: catalog.cases,
@@ -234,6 +312,7 @@ async function createPublication(
 }
 
 export async function listShowcaseTopicsAdmin(): Promise<ShowcaseAdminTopic[]> {
+    await ensureDefaultShowcaseTopicsAdmin();
     const db = await getServerDatabaseReady();
     const rows = await db.select().from(showcaseTopics).orderBy(asc(showcaseTopics.sortOrder), asc(showcaseTopics.id));
     return rows.map(toAdminTopic);

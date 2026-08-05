@@ -1,7 +1,9 @@
 import {
     archiveShowcaseTopicAdmin,
     createShowcaseTopicAdmin,
+    ensureDefaultShowcaseTopicsAdmin,
     getShowcaseTopicAdmin,
+    listShowcaseTopicsAdmin,
     publishShowcaseTopicAdmin,
     rollbackShowcaseTopicAdmin,
     unpublishShowcaseTopicAdmin,
@@ -109,6 +111,52 @@ afterAll(() => {
 });
 
 describe('showcase publications', () => {
+    it('materializes every bundled topic as an editable draft exactly once', async () => {
+        const firstInsertCount = await ensureDefaultShowcaseTopicsAdmin();
+        const firstTopics = await listShowcaseTopicsAdmin();
+        const secondInsertCount = await ensureDefaultShowcaseTopicsAdmin();
+
+        expect(firstInsertCount).toBe(DEFAULT_SHOWCASE_CATALOG.topics.length);
+        expect(secondInsertCount).toBe(0);
+        expect(firstTopics).toHaveLength(DEFAULT_SHOWCASE_CATALOG.topics.length);
+        expect(firstTopics.map((topic) => topic.id)).toEqual(DEFAULT_SHOWCASE_CATALOG.topics.map((topic) => topic.id));
+        expect(firstTopics.every((topic) => topic.status === 'draft' && topic.draftRevision === 1)).toBe(true);
+    });
+
+    it('only fills missing bundled topics and preserves administrator changes and lifecycle state', async () => {
+        const customizedDraft = withTitle(draftForTopic(0), '管理员保留标题');
+        await createShowcaseTopicAdmin({ draft: customizedDraft }, actor());
+        await archiveShowcaseTopicAdmin(customizedDraft.topic.id, actor());
+
+        const topics = await listShowcaseTopicsAdmin();
+        const customized = topics.find((topic) => topic.id === customizedDraft.topic.id);
+
+        expect(topics).toHaveLength(DEFAULT_SHOWCASE_CATALOG.topics.length);
+        expect(customized?.status).toBe('archived');
+        expect(customized?.draft.topic.title['zh-CN']).toBe('管理员保留标题');
+        expect(customized?.draftRevision).toBe(1);
+    });
+
+    it('uses a deterministic fallback slug when a custom topic already owns a bundled slug', async () => {
+        const source = draftForTopic(0);
+        const customId = 'custom-old-photo-topic';
+        const customDraft: ShowcaseTopicDraft = {
+            ...source,
+            topic: { ...source.topic, id: customId },
+            cases: source.cases.map((showcaseCase) => ({ ...showcaseCase, topicId: customId }))
+        };
+        await createShowcaseTopicAdmin({ draft: customDraft }, actor());
+
+        const topics = await listShowcaseTopicsAdmin();
+        const custom = topics.find((topic) => topic.id === customId);
+        const bundled = topics.find((topic) => topic.id === source.topic.id);
+
+        expect(custom?.slug).toBe(source.topic.slug);
+        expect(bundled?.slug).toBe(`${source.topic.slug}-builtin`);
+        expect(bundled?.draft.topic.slug).toBe(`${source.topic.slug}-builtin`);
+        expect(topics).toHaveLength(DEFAULT_SHOWCASE_CATALOG.topics.length + 1);
+    });
+
     it('uses the built-in catalog when no topic has been published', async () => {
         const result = await getPublicShowcaseCatalog();
 

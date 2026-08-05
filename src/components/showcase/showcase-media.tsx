@@ -36,11 +36,16 @@ export function ShowcaseMedia({ asset, className, eager = false, style }: Showca
     const alt = getLocalizedShowcaseText(asset.alt, language);
     if (asset.kind === 'remote-image') {
         return (
-            // The catalog validator only accepts credential-free public HTTPS image URLs.
+            // The catalog validator only accepts trusted built-in paths, managed media paths,
+            // or credential-free public HTTPS image URLs.
             // eslint-disable-next-line @next/next/no-img-element
             <img
                 src={asset.url}
-                srcSet={asset.thumbnailUrl && asset.width ? `${asset.thumbnailUrl} 640w, ${asset.url} ${asset.width}w` : undefined}
+                srcSet={
+                    asset.thumbnailUrl && asset.width
+                        ? `${asset.thumbnailUrl} 640w, ${asset.url} ${asset.width}w`
+                        : undefined
+                }
                 sizes='(max-width: 640px) 100vw, 640px'
                 alt={alt}
                 width={asset.width}

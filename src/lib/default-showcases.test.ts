@@ -2,6 +2,8 @@ import { DEFAULT_SHOWCASE_CATALOG } from './default-showcases';
 import { normalizeShowcaseCatalog } from './showcase';
 import type { ShowcaseLocalizedText } from './showcase';
 import { GPT_IMAGE_2_SIZE_PRESETS } from './size-utils';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 function expectCompleteLocalization(value: ShowcaseLocalizedText): void {
@@ -107,21 +109,40 @@ describe('DEFAULT_SHOWCASE_CATALOG', () => {
         }
     });
 
-    it('uses explicit sample placeholders and never embeds credentials, paths, bytes, URLs, or auto-submit state', () => {
+    it('uses bounded built-in WebP media and never embeds credentials, local paths, bytes, or auto-submit state', () => {
         const serialized = JSON.stringify(DEFAULT_SHOWCASE_CATALOG);
 
-        expect(DEFAULT_SHOWCASE_CATALOG.assets.every((asset) => asset.kind === 'placeholder')).toBe(true);
-        expect(DEFAULT_SHOWCASE_CATALOG.contentNotice['zh-CN']).toContain('示例占位预览');
-        expect(DEFAULT_SHOWCASE_CATALOG.contentNotice['en-US']).toContain('sample placeholder previews');
+        expect(DEFAULT_SHOWCASE_CATALOG.assets).toHaveLength(62);
+        expect(DEFAULT_SHOWCASE_CATALOG.assets.every((asset) => asset.kind === 'remote-image')).toBe(true);
+        expect(DEFAULT_SHOWCASE_CATALOG.contentNotice['zh-CN']).toContain('AI 生成示意素材');
+        expect(DEFAULT_SHOWCASE_CATALOG.contentNotice['en-US']).toContain('AI-generated illustrative launch assets');
         for (const asset of DEFAULT_SHOWCASE_CATALOG.assets) {
-            expect(asset.alt['zh-CN']).toContain('占位');
-            expect(asset.alt['en-US']).toContain('placeholder');
+            expect(asset.kind).toBe('remote-image');
+            if (asset.kind !== 'remote-image') continue;
+            expect(asset.url).toMatch(/^\/showcases\/builtin\/[a-z0-9-]+\.webp$/u);
+            expect(asset.thumbnailUrl).toMatch(/^\/showcases\/builtin\/[a-z0-9-]+-thumb\.webp$/u);
+            expect(asset.mimeType).toBe('image/webp');
+            expect(asset.width).toBeGreaterThan(0);
+            expect(asset.height).toBeGreaterThan(0);
         }
+        expect(DEFAULT_SHOWCASE_CATALOG.topics.every((topic) => topic.coverAssetId.endsWith('-cover'))).toBe(true);
 
         expect(serialized).not.toMatch(
             /autostart|autoSubmit|apiKey|baseUrl|providerConfig|accessToken|secret|password/iu
         );
         expect(serialized).not.toMatch(/(?:file|blob|data):|base64|https?:\/\//iu);
         expect(serialized).not.toMatch(/\/(?:Users|home|private|tmp|var|etc)\/|[a-z]:[\\/]/iu);
+    });
+
+    it('ships every built-in catalog image and thumbnail referenced by the wire contract', () => {
+        for (const asset of DEFAULT_SHOWCASE_CATALOG.assets) {
+            expect(asset.kind).toBe('remote-image');
+            if (asset.kind !== 'remote-image') continue;
+
+            expect(existsSync(resolve(process.cwd(), 'public', asset.url.slice(1)))).toBe(true);
+            expect(asset.thumbnailUrl).toBeDefined();
+            if (!asset.thumbnailUrl) continue;
+            expect(existsSync(resolve(process.cwd(), 'public', asset.thumbnailUrl.slice(1)))).toBe(true);
+        }
     });
 });
