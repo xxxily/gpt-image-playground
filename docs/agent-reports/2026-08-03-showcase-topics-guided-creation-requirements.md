@@ -2,12 +2,12 @@
 
 | 字段     | 内容                                                                                                                                                                                                                  |
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 日期     | 2026-08-03（2026-08-04 持续迭代，当前准备 `v2.15.11` 深链、缓存与部署可靠性补丁）                                                                                                                                         |
+| 日期     | 2026-08-03（持续迭代至 2026-08-05，`v2.15.11` 已发布并部署）                                                                                                                                                              |
 | 状态     | 部分完成 (Partial)：核心专题发现、引导式创作、托管/外部媒体发布安全、完整结构化后台、跨端目录和匿名漏斗主体已可用；24 个真实 AI 案例资产、5 名非专业用户测试、漏斗集中存储和真机安装验收仍缺证据。 |
 | 相关请求 | 梳理并实现“老照片修复、试衣间、创意风格化等专题 + 案例展示 + 点击复现 + 后台管理”，完成后发布新补丁版本、触发 Action 产物并部署 129。                                                                                 |
 | 相关文档 | [专题案例与引导式创作能力需求文档](../requirements/SHOWCASE_TOPICS_AND_GUIDED_CREATION_REQUIREMENTS.md)、[展示内容与后台管理使用手册](../展示内容与后台管理使用手册.md)、[发布流程](../../RELEASE_PROCESS.md)         |
 | 改动范围 | showcase 领域契约、默认目录、Web/Tauri 目录读取、专题前台、工作台引导、来源归因、后台 API/UI、SQLite schema、i18n、需求与用户文档。                                                                                   |
-| 提交状态 | `v2.15.10` 已通过 `19f1097` / tag `v2.15.10` 发布，Actions、15 个资产与 129 部署已完成；`v2.15.11` 深链、缓存和部署保护改动尚未提交。工作区内用户既有的任务服务、社区调研和 PSD 研究文件继续显式排除。 |
+| 提交状态 | `v2.15.11` 功能提交 `95e3932`、发布提交 `d2c4af7`、annotated tag `v2.15.11` 和发布后部署热修 `4dbb527` 均已推送；Actions、15 个资产与 129 部署已完成。工作区内用户既有的任务服务、社区调研、PSD 研究和索引改动继续显式排除。 |
 
 ## 范围核对
 
@@ -22,7 +22,7 @@
 | 后台管理             | `/admin/showcases` 支持列表筛选、FAQ、相关专题、用户补充要求、输入数量/MIME、背景/审核等完整运营字段、媒体上传与指派、匿名漏斗汇总、复制、预览、发布、下线、归档、版本回滚，并保留高级 JSON；viewer 只读 | 后台 UI/API、SQLite schema、字段 round-trip 测试与浏览器保存刷新 | 已完成 (Completed) |
 | 权限、审计与发布安全 | owner/admin 可写、viewer 只读；写操作审计；发布快照与线上指针原子切换                                                                                                      | `src/lib/server/showcase/*`                                                                         | 已完成 (Completed)                                                                           |
 | i18n、主题与响应式   | 新增固定文案已进入中英文资源；1440/1280 桌面与 390×844 移动、浅色/深色、键盘、触摸、reduced-motion 和提示词复制状态均已复验                                         | `messages.ts`、Playwright 截图与交互记录                                                                       | 已完成 (Completed)                                                                           |
-| 发布新版本和构建产物 | `v2.15.9` 已推送；7 个 Action jobs 全部成功，正式 Release 15 个资产齐全，129 已切换并完成 HTTP、ETag、SQLite 与回滚验收                                             | [v2.15.9 发布报告](./2026-08-04-release-2.15.9.md)                                                   | 已完成 (Completed)                                                                           |
+| 发布新版本和构建产物 | `v2.15.11` 已推送；Run `30966310596` 的 7 个 jobs 全部成功，正式 Release 15 个资产齐全，129 已切换并完成 HTTP、ETag、SQLite、认证边界与回滚验收 | [v2.15.11 发布报告](./2026-08-04-release-2.15.11.md) | 已完成 (Completed) |
 
 ## 实际完成范围
 
@@ -364,4 +364,16 @@
 | 浏览器 | 1440×900 深色、1280 桌面、390×844 浅色；中英文、reduced-motion、键盘、Guide | 无横向溢出；0 个持续动画；Console 0 error / 0 warning；无生成请求 |
 | 部署环境 | `bash -n`、空/纯空白/有效值检查、正常及显式 dummy secret 的 `--check-build-env`、`--check-env`、生产后台路由 | 构建端无生产认证键；最终环境为非空值且输出脱敏；`/admin` 与 `/admin/showcases` 均 307 → `/admin/login` |
 
-详细提交、版本、Action、Release 资产和生产部署证据见 [v2.15.11 发布与构建报告](./2026-08-04-release-2.15.11.md)。当前在发布前继续保持 **部分完成 (Partial)**；代码补丁已达到发布门槛，产品层剩余项需要真实素材、受试者、集中基础设施或安装设备，不能由占位内容或 CI 结果替代。
+详细提交、版本、Action、Release 资产和生产部署证据见 [v2.15.11 发布与构建报告](./2026-08-04-release-2.15.11.md)。`v2.15.11` 已于 2026-08-05 正式发布并部署；代码、构建、产物和生产切换均达到本轮发布门槛，产品层剩余项需要真实素材、受试者、集中基础设施或安装设备，不能由占位内容或 CI 结果替代。
+
+### 发布完成证据
+
+| 检查项 | 最终结果 | 状态 |
+| ------ | -------- | ---- |
+| commit / tag / push | 发布提交 `d2c4af7`；annotated tag `v2.15.11` 解引用到该提交；远端 `master` 为包含旧版 `mawk` 兼容修复的 `4dbb527` | 已完成 (Completed) |
+| GitHub Actions | Run [`30966310596`](https://github.com/xxxily/gpt-image-playground/actions/runs/30966310596) 的校验、Release 准备、Android、macOS、Windows、Linux 和正式发布共 7 个 jobs 全部成功 | 已完成 (Completed) |
+| GitHub Release | [v2.15.11](https://github.com/xxxily/gpt-image-playground/releases/tag/v2.15.11) 为正式版、非 prerelease，共 15 个 uploaded 资产 | 已完成 (Completed) |
+| 129 生产 | `current` 指向 `20260805100205-v2.15.11`；systemd `active`；Node `20.20.2`；`161-docker` / `linux-glibc228`；专题媒体新增 schema 字段 9/9 存在 | 已完成 (Completed) |
+| 线上行为 | `/`、`/topics`、老照片案例为 200；`/admin`、`/admin/showcases` 为 307 → `/admin/login`；根页 no-cache；专题 API ETag 条件请求 304 | 已完成 (Completed) |
+| 回滚与构建清理 | `v2.15.10` release 目录保留；161 source 无 `.env.production` / `.env.local`，无残留 Debian 构建容器 | 已完成 (Completed) |
+| 完整产品闭环 | 24 个真实案例、5 名非专业用户测试、多实例集中分析和四平台安装级验收仍未完成 | 部分完成 (Partial) |

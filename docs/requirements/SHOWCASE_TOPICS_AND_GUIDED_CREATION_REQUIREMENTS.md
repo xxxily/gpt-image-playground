@@ -1559,8 +1559,24 @@ src/app/api/admin/showcases/*
 
 ### 31.5 发布质量边界
 
-- 前端 126 个测试文件、1128 项测试通过；TypeScript、全量 ESLint、Web production build 和 desktop static export 通过。
+- 前端 127 个测试文件、1132 项测试通过；TypeScript、全量 ESLint、Web production build 和 desktop static export 通过。
 - Rust 83 项测试与 Clippy `-D warnings` 通过；npm production audit 为 0 vulnerabilities，密钥和发布环境检查通过。
 - `cargo audit` 仍仅因 `quick-xml 0.39.2` 两项既有高危公告非零退出。`cargo update --dry-run -p quick-xml --precise 0.41.0` 证明 `plist 1.9.0` 的 `^0.39.2` 约束不能直接升级；`plist 1.10.0` 可引入安全版但要求 Rust 1.88，高于项目声明的 1.77.2，继续作为 Tauri 工具链升级项。
 - 浏览器覆盖 1440×900 深色案例、1280 桌面筛选往返、390×844 浅色双图案例、中文与英文、键盘、触摸、reduced-motion、失效链接和 Guide Dialog；均无横向溢出，核心场景 Console 0 error / 0 warning，Guide 未产生生成请求。
 - 后台媒体上传新增授权/自有源图与 AI 生成结果两种来源。AI 结果要求模型 ID、配方版本、生成时间、候选次数和人工审核说明；未勾选批准不能上传，数据库记录审核人/时间，发布前再次校验。旧媒体通过 `licensed-source` / `not-required` 安全默认值迁移，不伪造历史 AI 审核记录。
+
+### 31.6 发布与生产验收结果
+
+> 2026-08-05 最终发布核对。专题代码、构建产物和 129 生产切换已完成，但本需求总体仍为 **部分完成 (Partial)**；发布成功不能替代真实案例内容、真人可用性研究、集中分析基础设施和安装级设备验收。
+
+| 验收项 | 最终结果 | 状态 |
+| ------ | -------- | ---- |
+| 版本与远端状态 | 功能提交 `95e3932`、发布提交 `d2c4af7`、annotated tag `v2.15.11` 已推送；tag 解引用到 `d2c4af7`，远端 `master` 包含发布后部署兼容修复 `4dbb527` | 已完成 (Completed) |
+| GitHub Actions | Run `30966310596` 的 7 个 jobs 全部成功，覆盖版本/质量门、Web/Desktop、macOS、Windows、Linux、Android 和正式 Release 发布 | 已完成 (Completed) |
+| Release 资产 | GitHub Release `v2.15.11` 已正式发布、非 prerelease，共 15 个资产，包含桌面安装包、Android APK、签名文件和 `latest.json` | 已完成 (Completed) |
+| 129 生产部署 | 当前目录为 `20260805100205-v2.15.11`，systemd 为 `active`；运行包由 161 Docker 构建，Node `20.20.2`，native 模式 `linux-glibc228` | 已完成 (Completed) |
+| 生产行为 | `/`、`/topics` 和案例深链为 200；未登录后台为 307 并跳转 `/admin/login`；根页禁用缓存；专题 API ETag 条件请求返回 304；生产媒体表新增来源/审核字段 9/9 存在 | 已完成 (Completed) |
+| 回滚与构建隔离 | `v2.15.10` 目录保留为直接回滚点；161 构建 source 无 `.env.production` / `.env.local`，无残留一次性构建容器 | 已完成 (Completed) |
+| 内容与规模门槛 | 默认 24 个案例仍为明确标识的演示占位；5 名非专业用户测试、多实例集中分析和 macOS/Windows/Linux/Android 安装级验收仍缺证据 | 部分完成 (Partial) |
+
+发布期间发现 161 Docker DNS 被 Clash fake-IP 影响，以及 Debian 10 `mawk 1.3.3` 对 `[^[:space:]]` 的兼容问题。网络问题通过 detached 部署 worktree 中的精确 host 映射完成一次性构建，未进入公开 tag；`mawk` 判定改为显式空格、Tab、CR 集合并以 `4dbb527` 推送到 `master`。失败均发生在 129 切换之前，旧版本持续可用。完整命令、资产和生产证据见 [v2.15.11 发布与构建报告](../agent-reports/2026-08-04-release-2.15.11.md)。
